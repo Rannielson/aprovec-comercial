@@ -1,0 +1,71 @@
+{
+  "conversionId": "ecf1293c-96e6-4c4e-b71b-7f3afe6b0fb8",
+  "operationExpiresAt": "2026-09-20T17:29:58.901Z",
+  "manifestFile": "/Users/rannielsonmax/Documents/ChatGPT/aprovec-comercial/design/referencia-visual.layerdoc.json.assets/manifest.json",
+  "artifacts": [
+    {
+      "id": "crop-2",
+      "role": "layer-crop",
+      "mediaType": "image/png",
+      "sha256": "84b36cefabf09e9198edb2aea4a5bb374ea5959d85e127f8ece9c3b28f8712a7",
+      "sourceHref": "https://12ui.com/api/v1/convert/ecf1293c-96e6-4c4e-b71b-7f3afe6b0fb8?artifact=crop-2&expires=1789925398&signature=54he93g3CEvVbHm9YdXSr-RQC0t64r_DtBMme9Ursoc",
+      "localPath": "/Users/rannielsonmax/Documents/ChatGPT/aprovec-comercial/design/referencia-visual.layerdoc.json.assets/crop-2-84b36cefabf0.png"
+    },
+    {
+      "id": "cutout-2",
+      "role": "layer-cutout",
+      "mediaType": "image/png",
+      "sha256": "cbe9b9c90910af4f07745a3b40d75fe946d5ff85fb16aed8c5a529311b6f5932",
+      "sourceHref": "https://12ui.com/api/v1/convert/ecf1293c-96e6-4c4e-b71b-7f3afe6b0fb8?artifact=cutout-2&expires=1789925398&signature=69EsM5VlBBqT9UYSCNlk9RrJ983oWpI1a6-oKSmYnOA",
+      "localPath": "/Users/rannielsonmax/Documents/ChatGPT/aprovec-comercial/design/referencia-visual.layerdoc.json.assets/cutout-2-cbe9b9c90910.png"
+    },
+    {
+      "id": "cutout-37",
+      "role": "layer-cutout",
+      "mediaType": "image/png",
+      "sha256": "7668efe29c624f3c5c78fcb46afaf6b2ca3ac5aad172db34c36f9792f0d6b4d9",
+      "sourceHref": "https://12ui.com/api/v1/convert/ecf1293c-96e6-4c4e-b71b-7f3afe6b0fb8?artifact=cutout-37&expires=1789925398&signature=EIuu_4wyPTkmJOUwbAbIX25QtqVcChok2PAB7balkBc",
+      "localPath": "/Users/rannielsonmax/Documents/ChatGPT/aprovec-comercial/design/referencia-visual.layerdoc.json.assets/cutout-37-7668efe29c62.png"
+    },
+    {
+      "id": "cutout-45",
+      "role": "layer-cutout",
+      "mediaType": "image/png",
+      "sha256": "45c17ee7b868bd29195b28ddd4c9647015d420181b4342275e2b5d1243bbd7ad",
+      "sourceHref": "https://12ui.com/api/v1/convert/ecf1293c-96e6-4c4e-b71b-7f3afe6b0fb8?artifact=cutout-45&expires=1789925398&signature=rJnJENilsGsxgCVoLhpFK-cHuMbYJOh6_fJvhnXLCg0",
+      "localPath": "/Users/rannielsonmax/Documents/ChatGPT/aprovec-comercial/design/referencia-visual.layerdoc.json.assets/cutout-45-45c17ee7b868.png"
+    },
+    {
+      "id": "source",
+      "role": "source",
+      "mediaType": "image/png",
+      "sha256": "de7a3ff2e975a6a303ff7e91435e7adc710a55c6ac66eb9ca05f4e96104dc509",
+      "sourceHref": "https://12ui.com/api/v1/convert/ecf1293c-96e6-4c4e-b71b-7f3afe6b0fb8?artifact=source&expires=1789925398&signature=ZDFMSeWRoGjF-CJFwYWQI7L73l0OQ8C73y76Bz8fEYE",
+      "localPath": "/Users/rannielsonmax/Documents/ChatGPT/aprovec-comercial/design/referencia-visual.layerdoc.json.assets/source-de7a3ff2e975.png"
+    },
+    {
+      "id": "upscaled-region-2",
+      "role": "upscaled-region",
+      "mediaType": "image/png",
+      "sha256": "05e6833ff3a911a622c2fe5b050382c5a2762cf356564c7a4d0fccbaae3fff4b",
+      "sourceHref": "https://12ui.com/api/v1/convert/ecf1293c-96e6-4c4e-b71b-7f3afe6b0fb8?artifact=upscaled-region-2&expires=1789925398&signature=CgorKOVaaupnlrp69MsBE2ZhdpHkRD8IScIEWmMjp9c",
+      "localPath": "/Users/rannielsonmax/Documents/ChatGPT/aprovec-comercial/design/referencia-visual.layerdoc.json.assets/upscaled-region-2-05e6833ff3a9.png"
+    },
+    {
+      "id": "upscaled-region-37",
+      "role": "upscaled-region",
+      "mediaType": "image/png",
+      "sha256": "e9ce1c767eb5aeb08cb0661807d0fe272b86ea5a5e8a9b0c5f7b1d449796f751",
+      "sourceHref": "https://12ui.com/api/v1/convert/ecf1293c-96e6-4c4e-b71b-7f3afe6b0fb8?artifact=upscaled-region-37&expires=1789925398&signature=bfiM1ciIhZpRxXQin9vu6VOtXEKJJU7SABF5ND-jUu8",
+      "localPath": "/Users/rannielsonmax/Documents/ChatGPT/aprovec-comercial/design/referencia-visual.layerdoc.json.assets/upscaled-region-37-e9ce1c767eb5.png"
+    },
+    {
+      "id": "upscaled-region-45",
+      "role": "upscaled-region",
+      "mediaType": "image/png",
+      "sha256": "d3f30c33d82706dafc7b222bf1828487ce995603d491de0d1cfec33158d75370",
+      "sourceHref": "https://12ui.com/api/v1/convert/ecf1293c-96e6-4c4e-b71b-7f3afe6b0fb8?artifact=upscaled-region-45&expires=1789925398&signature=ktre-FUbHHzvywFFfmqIq4tlDOKP9DHV0vIoI3Dw3UE",
+      "localPath": "/Users/rannielsonmax/Documents/ChatGPT/aprovec-comercial/design/referencia-visual.layerdoc.json.assets/upscaled-region-45-d3f30c33d827.png"
+    }
+  ]
+}

@@ -66,6 +66,7 @@ app.MapPasswordEndpoints();
 app.MapUserEndpoints();
 app.MapRoleEndpoints();
 app.MapCommissionPlanEndpoints();
+app.MapCommissionEndpoints();
 
 app.Run();
 

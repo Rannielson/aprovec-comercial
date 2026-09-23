@@ -86,4 +86,68 @@ public class FechamentoTests(ApiFixture api)
         var twice = await admin.PostAsync("/fechamentos/2026-08/provision");
         Assert.Equal("fechamento.invalid_transition", await ApiClient.CodeAsync(twice));
     }
+
+    [Fact]
+    public async Task Confirming_the_current_or_a_future_competencia_is_rejected()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+
+        // FakeTimeProvider only moves forward (it refuses to rewind, same as a real clock), and
+        // this instance is shared by the whole "api" test collection (tests in it run
+        // sequentially), so this test only ever advances it - never sets it to a fixed literal
+        // that could be earlier than wherever another test already pushed it.
+        var now = api.Time.GetUtcNow();
+        var currentCompetencia = new DateOnly(now.Year, now.Month, 1).ToString("yyyy-MM");
+
+        // The still-open current competência may not be confirmed.
+        var current = await admin.PostAsync($"/fechamentos/{currentCompetencia}/confirm");
+        Assert.Equal(HttpStatusCode.BadRequest, current.StatusCode);
+        Assert.Equal("fechamento.competencia_not_closed", await ApiClient.CodeAsync(current));
+
+        // Nor may a competência that hasn't happened yet.
+        var future = await admin.PostAsync("/fechamentos/2031-01/confirm");
+        Assert.Equal(HttpStatusCode.BadRequest, future.StatusCode);
+        Assert.Equal("fechamento.competencia_not_closed", await ApiClient.CodeAsync(future));
+
+        // Advance past the current competência: it is now closed and confirms as before.
+        api.Time.SetUtcNow(now.AddMonths(1));
+        var past = await admin.PostAsync($"/fechamentos/{currentCompetencia}/confirm");
+        await ApiClient.ExpectAsync(past, HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_scope_narrowed_after_the_permission_filter_is_still_caught_inside_the_transaction()
+    {
+        var s = await api.SeedAsync();
+
+        // Grant Maria a role with fechamento.confirmar/visualizar plus full-tenant comissoes
+        // visibility - as if an admin had just set her up as a second closer.
+        var roleId = Guid.NewGuid();
+        await api.SqlAsync(
+            """
+            insert into roles (id, tenant_id, name) values (@roleId, @tenant, 'Confirmador Geral');
+            insert into role_permissions (tenant_id, role_id, permission_key, scope) values
+              (@tenant, @roleId, 'fechamento.confirmar', null),
+              (@tenant, @roleId, 'fechamento.visualizar', null),
+              (@tenant, @roleId, 'comissoes.visualizar', 'tenant');
+            insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @maria, @roleId);
+            """,
+            new { roleId, tenant = s.TenantId, maria = s.Maria });
+
+        var maria = await LoginAsync(s, "maria");
+
+        // Her permission "looks fine" - she can confirm a closed month using her full-tenant grant.
+        await ApiClient.ExpectAsync(await maria.PostAsync("/fechamentos/2026-07/confirm"), HttpStatusCode.OK);
+
+        // Moments later, an admin narrows her comissoes.visualizar grant back down to 'own' -
+        // simulating an edit landing in the window after any earlier, pre-transaction check.
+        await api.SqlAsync(
+            "update role_permissions set scope = 'own' where tenant_id = @tenant and role_id = @roleId and permission_key = 'comissoes.visualizar'",
+            new { tenant = s.TenantId, roleId });
+
+        var afterNarrowing = await maria.PostAsync("/fechamentos/2026-06/confirm");
+        Assert.Equal(HttpStatusCode.Forbidden, afterNarrowing.StatusCode);
+        Assert.Equal("fechamento.requires_full_visibility", await ApiClient.CodeAsync(afterNarrowing));
+    }
 }

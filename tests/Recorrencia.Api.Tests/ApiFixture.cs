@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Time.Testing;
 using Recorrencia.Api.Cli;
 using Recorrencia.Api.Infrastructure;
 using Recorrencia.Api.Security;
@@ -15,6 +16,11 @@ public sealed class ApiFixture : IAsyncLifetime
     public PostgresFixture Db { get; } = new();
     public WebApplicationFactory<Program> Factory { get; private set; } = null!;
     public CapturingEmailSender Emails { get; } = new();
+
+    // Shared with the whole "api" test collection (tests in it run sequentially, never in
+    // parallel). FakeTimeProvider.SetUtcNow refuses to rewind, so treat this clock as
+    // forward-only: advance it, never reset it to an earlier fixed value.
+    public FakeTimeProvider Time { get; } = new(DateTimeOffset.UtcNow);
 
     public async Task InitializeAsync()
     {
@@ -35,6 +41,8 @@ public sealed class ApiFixture : IAsyncLifetime
             {
                 services.RemoveAll<Recorrencia.Api.Email.IEmailSender>();
                 services.AddSingleton<Recorrencia.Api.Email.IEmailSender>(Emails);
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(Time);
             });
         });
     }

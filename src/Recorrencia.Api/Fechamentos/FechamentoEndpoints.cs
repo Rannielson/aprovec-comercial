@@ -49,16 +49,27 @@ public static class FechamentoEndpoints
     }
 
     private static async Task<IResult> ConfirmAsync(string competencia, RequestContext request, Database db,
-        CurrentPermissions permissions, CancellationToken ct)
+        TimeProvider time, CancellationToken ct)
     {
         var month = CommissionService.ParseCompetencia(competencia);
         var tenant = request.RequireTenant();
         var user = request.RequireUser();
-        if ((await permissions.GetAsync(ct)).ScopeOf("comissoes.visualizar") != "tenant")
-            throw new ApiProblem(StatusCodes.Status403Forbidden, "fechamento.requires_full_visibility");
+
+        var currentMonth = time.GetUtcNow().UtcDateTime;
+        var currentMonthStart = new DateOnly(currentMonth.Year, currentMonth.Month, 1);
+        if (month >= currentMonthStart)
+            throw new ApiProblem(StatusCodes.Status400BadRequest, "fechamento.competencia_not_closed");
 
         var result = await db.InTenantAsync(tenant, user, async tx =>
         {
+            // Re-check full-tenant visibility inside the transaction (not just via the caller's
+            // permissions before it started): if the caller's role was narrowed in the window
+            // between the permission filter and this point, this is the check that actually
+            // prevents a partial-tenant snapshot from being frozen without any record of the gap.
+            var scope = await tx.ExecuteScalarAsync<string?>("select app.scope_for('comissoes.visualizar')");
+            if (scope != "tenant")
+                throw new ApiProblem(StatusCodes.Status403Forbidden, "fechamento.requires_full_visibility");
+
             await tx.ExecuteAsync(
                 "insert into fechamentos (tenant_id, competencia) values (@tenant, @month) on conflict (tenant_id, competencia) do nothing",
                 new { tenant, month });

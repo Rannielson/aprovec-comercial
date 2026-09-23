@@ -1,5 +1,8 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Recorrencia.Api.Cli;
+using Recorrencia.Api.Infrastructure;
+using Recorrencia.Api.Security;
 
 namespace Recorrencia.Api.Tests;
 
@@ -43,4 +46,7 @@ public sealed class ApiFixture : IAsyncLifetime
 
     public Task<T> SqlScalarAsync<T>(string sql, object? param = null) =>
         Db.AsSuperadminAsync(null, async (c, t) => (await c.ExecuteScalarAsync<T>(sql, param, t))!);
+
+    public Task<SeededTenant> SeedAsync() =>
+        DevSeed.SeedTenantAsync(Service<DataSources>(), Service<PasswordHasher>(), Seed.UniqueSlug(), Password);
 }

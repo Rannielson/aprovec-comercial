@@ -4,6 +4,7 @@ using Npgsql;
 using Recorrencia.Api;
 using Recorrencia.Api.Infrastructure;
 using Recorrencia.Api.Security;
+using Recorrencia.Api.Tenancy;
 using Recorrencia.Db;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -32,12 +33,18 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<LoginThrottle>();
 
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<TenantResolver>();
+builder.Services.AddScoped<RequestContext>();
+
 var app = builder.Build();
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseMiddleware<InternalKeyMiddleware>();
+app.UseMiddleware<HostContextMiddleware>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapTenantEndpoints();
 
 app.Run();
 

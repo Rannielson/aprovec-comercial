@@ -79,4 +79,14 @@ public sealed class Seed(PostgresFixture db)
             select @tenantId, @userId, id from roles where tenant_id = @tenantId and source_template_key = @templateKey
             """,
             new { tenantId, userId, templateKey });
+
+    public Task<Guid> BoletoAsync(Guid tenantId, Guid ownerId, decimal valor, string status, string? paidOn) =>
+        ScalarAsync<Guid>(
+            """
+            insert into boletos (tenant_id, participante_id, associado_ref, associado_nome, placa, valor, status, vencimento, pago_em)
+            values (@tenantId, @ownerId, @reference, 'Associado de teste', 'TST0A00', @valor, @status,
+                    coalesce(@paidOn::date, date '2026-09-01'), @paidOn::date)
+            returning id
+            """,
+            new { tenantId, ownerId, reference = "APV-" + Guid.NewGuid().ToString("N")[..8], valor, status, paidOn });
 }

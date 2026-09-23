@@ -18,6 +18,37 @@ public class CommissionTests(ApiFixture api)
         return client;
     }
 
+    // Seeds a frozen (status = 'confirmado') fechamento for `competencia`, with one
+    // fechamento_detalhes "own" row per (beneficiary, boleto owner) pair given. Inserts happen
+    // while the fechamento is still 'apuracao' (fechamento_detalhes_guard forbids inserting into
+    // an already-frozen fechamento), then the status is flipped to 'confirmado' afterwards.
+    private async Task<Guid> SeedFrozenFechamentoAsync(SeededTenant s, DateOnly competencia, params (Guid Beneficiary, Guid Owner)[] rows)
+    {
+        var fechamentoId = Guid.NewGuid();
+        await api.SqlAsync(
+            "insert into fechamentos (id, tenant_id, competencia) values (@fechamentoId, @tenant, @competencia)",
+            new { fechamentoId, tenant = s.TenantId, competencia });
+
+        foreach (var (beneficiary, owner) in rows)
+        {
+            await api.SqlAsync(
+                """
+                insert into fechamento_detalhes
+                  (tenant_id, fechamento_id, beneficiario_id, origem_participante_id, boleto_id, rule_id, rule_type, rate, base, valor)
+                select @tenant, @fechamentoId, @beneficiary, @owner, b.id, @ruleId, 'own', 0.07, 1000, 70
+                  from boletos b
+                 where b.tenant_id = @tenant and b.participante_id = @owner
+                 limit 1
+                """,
+                new { tenant = s.TenantId, fechamentoId, beneficiary, owner, ruleId = Guid.NewGuid() });
+        }
+
+        await api.SqlAsync(
+            "update fechamentos set status = 'confirmado', confirmado_em = now(), confirmado_por = @admin where id = @fechamentoId",
+            new { fechamentoId, admin = s.Admin });
+        return fechamentoId;
+    }
+
     [Fact]
     public async Task Consultor_sees_own_and_first_level_commission()
     {
@@ -94,5 +125,41 @@ public class CommissionTests(ApiFixture api)
             Assert.Null(e.AssociadoNome);
             Assert.Null(e.Placa);
         });
+    }
+
+    [Fact]
+    public async Task Frozen_competencia_summary_isolates_beneficiaries_for_consultor()
+    {
+        var s = await api.SeedAsync();
+        await SeedFrozenFechamentoAsync(s, new DateOnly(2026, 9, 1), (s.Joao, s.Joao), (s.Maria, s.Maria));
+
+        var result = await (await LoginAsync(s, "joao")).GetJsonAsync<CommissionsDto>("/commissions/2026-09");
+
+        Assert.Equal(("confirmado", "snapshot", 70.00m), (result.Status, result.Source, result.Total));
+        var joao = Assert.Single(result.Beneficiaries);
+        Assert.Equal(s.Joao, joao.UserId);
+    }
+
+    [Fact]
+    public async Task Frozen_competencia_entries_filter_to_the_requested_beneficiary_for_coordenador()
+    {
+        var s = await api.SeedAsync();
+        await SeedFrozenFechamentoAsync(s, new DateOnly(2026, 9, 1), (s.Joao, s.Joao), (s.Maria, s.Maria));
+
+        var entries = await (await LoginAsync(s, "coordenacao"))
+            .GetJsonAsync<List<EntryDto>>($"/commissions/2026-09/entries?beneficiaryId={s.Joao}");
+
+        var entry = Assert.Single(entries);
+        Assert.Equal(s.Joao, entry.OriginUserId);
+    }
+
+    [Fact]
+    public async Task Frozen_competencia_still_rejects_a_beneficiary_outside_the_callers_scope()
+    {
+        var s = await api.SeedAsync();
+        await SeedFrozenFechamentoAsync(s, new DateOnly(2026, 9, 1), (s.Joao, s.Joao), (s.Maria, s.Maria));
+
+        var response = await (await LoginAsync(s, "joao")).GetAsync($"/commissions/2026-09/entries?beneficiaryId={s.Maria}");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 }

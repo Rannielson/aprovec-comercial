@@ -5,7 +5,7 @@ begin
   foreach t in array array[
     'users', 'hierarchy_paths', 'tenant_modules', 'roles', 'role_permissions', 'user_roles',
     'commission_groups', 'commission_group_members', 'commission_plans', 'commission_rules',
-    'boletos', 'fechamentos', 'fechamento_detalhes', 'audit_log']
+    'boletos', 'fechamentos', 'fechamento_detalhes', 'audit_log', 'invite_tokens', 'sessions']
   loop
     execute format('alter table %I enable row level security', t);
     execute format('alter table %I force row level security', t);
@@ -20,7 +20,7 @@ $$;
 create policy users_select on users for select to app_user using (
   id = app.current_user_id()
   or (select app.scope_for('estrutura.visualizar')) = 'tenant'
-  or id = any (app.visible_owner_ids((select app.scope_for('estrutura.visualizar'))))
+  or id = any ((select app.visible_owner_ids((select app.scope_for('estrutura.visualizar'))))::uuid[])
 );
 create policy users_insert on users for insert to app_user
   with check ((select app.has_permission('usuarios.convidar')));
@@ -32,8 +32,8 @@ create policy users_update on users for update to app_user
 create policy hierarchy_paths_select on hierarchy_paths for select to app_user using (
   (select app.scope_for('estrutura.visualizar')) = 'tenant'
   or (
-    ancestor_id = any (app.visible_owner_ids((select app.scope_for('estrutura.visualizar'))))
-    and descendant_id = any (app.visible_owner_ids((select app.scope_for('estrutura.visualizar'))))
+    ancestor_id = any ((select app.visible_owner_ids((select app.scope_for('estrutura.visualizar'))))::uuid[])
+    and descendant_id = any ((select app.visible_owner_ids((select app.scope_for('estrutura.visualizar'))))::uuid[])
   )
 );
 
@@ -82,7 +82,7 @@ create policy commission_rules_write on commission_rules for all to app_user
 -- boletos
 create policy boletos_select on boletos for select to app_user using (
   (select app.scope_for('carteira.visualizar')) = 'tenant'
-  or participante_id = any (app.visible_owner_ids((select app.scope_for('carteira.visualizar'))))
+  or participante_id = any ((select app.visible_owner_ids((select app.scope_for('carteira.visualizar'))))::uuid[])
 );
 
 -- fechamentos
@@ -97,7 +97,7 @@ create policy fechamentos_update on fechamentos for update to app_user
 -- fechamento_detalhes
 create policy fechamento_detalhes_select on fechamento_detalhes for select to app_user using (
   (select app.scope_for('comissoes.visualizar')) = 'tenant'
-  or beneficiario_id = any (app.visible_owner_ids((select app.scope_for('comissoes.visualizar'))))
+  or beneficiario_id = any ((select app.visible_owner_ids((select app.scope_for('comissoes.visualizar'))))::uuid[])
 );
 create policy fechamento_detalhes_insert on fechamento_detalhes for insert to app_user
   with check ((select app.has_permission('fechamento.confirmar')));

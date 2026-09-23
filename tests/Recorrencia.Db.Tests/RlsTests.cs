@@ -194,4 +194,39 @@ public class RlsTests(PostgresFixture db)
         Assert.Equal(1L, await CountAsync(s.TenantA, s.Joao, "fechamentos"));
         Assert.Equal(0L, await CountAsync(s.TenantA, noAccess, "fechamentos"));
     }
+
+    [Fact]
+    public async Task Every_tenant_scoped_table_has_forced_rls()
+    {
+        await using var conn = await db.OpenAsync(db.OwnerConnectionString);
+        var rows = (await conn.QueryAsync<(string RelName, bool RowSecurity, bool ForceRowSecurity)>(
+            """
+            select distinct c.relname, c.relrowsecurity, c.relforcerowsecurity
+              from pg_class c
+              join pg_attribute a on a.attrelid = c.oid
+             where a.attname = 'tenant_id'
+               and c.relkind = 'r'
+               and c.relnamespace = 'public'::regnamespace
+               and not a.attisdropped
+            """)).ToList();
+
+        Assert.NotEmpty(rows);
+        foreach (var (relName, rowSecurity, forceRowSecurity) in rows)
+        {
+            Assert.True(rowSecurity, $"{relName} deveria ter row level security habilitado");
+            Assert.True(forceRowSecurity, $"{relName} deveria forçar row level security");
+        }
+    }
+
+    [Fact]
+    public async Task Update_cannot_move_a_row_into_another_tenant()
+    {
+        var s = await RlsScenario.CreateAsync(db);
+        var roleId = await db.AsAppUserAsync(s.TenantA, s.Admin, (c, t) => c.ExecuteScalarAsync<Guid>(
+            "insert into roles (tenant_id, name) values (@a, 'Papel móvel') returning id", new { a = s.TenantA }, t));
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(s.TenantA, s.Admin, (c, t) => c.ExecuteAsync(
+            "update roles set tenant_id = @b where id = @r", new { b = s.TenantB, r = roleId }, t)));
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, ex.SqlState);
+    }
 }

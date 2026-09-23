@@ -110,6 +110,24 @@ public class BoletoFechamentoTests(PostgresFixture db)
     }
 
     [Fact]
+    public async Task Provisioning_fields_cannot_be_changed_after_provisioning()
+    {
+        var t = await _seed.TenantAsync();
+        var u = await _seed.UserAsync(t, "Admin");
+        var other = await _seed.UserAsync(t, "Outro admin");
+        var f = await FechamentoAsync(t);
+
+        await _seed.ExecAsync(
+            "update fechamentos set status = 'confirmado', confirmado_em = now(), confirmado_por = @u where id = @f", new { f, u });
+        await _seed.ExecAsync(
+            "update fechamentos set status = 'provisionado', provisionado_em = now(), provisionado_por = @u where id = @f", new { f, u });
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => _seed.ExecAsync(
+            "update fechamentos set provisionado_por = @other where id = @f", new { f, other }));
+        Assert.Equal("fechamento.immutable", ex.MessageText);
+    }
+
+    [Fact]
     public async Task Competencia_cannot_change_after_creation()
     {
         var t = await _seed.TenantAsync();

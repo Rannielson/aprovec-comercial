@@ -72,6 +72,11 @@ begin
     raise exception 'fechamento.immutable' using errcode = 'P0001';
   end if;
 
+  if old.status = 'provisionado'
+     and (new.provisionado_em is distinct from old.provisionado_em or new.provisionado_por is distinct from old.provisionado_por) then
+    raise exception 'fechamento.immutable' using errcode = 'P0001';
+  end if;
+
   return new;
 end
 $$;

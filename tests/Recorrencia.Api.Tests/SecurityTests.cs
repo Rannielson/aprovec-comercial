@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Reflection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Recorrencia.Api.Infrastructure;
@@ -115,6 +117,58 @@ public class LoginThrottleTests
         throttle.Reset("email:a");
 
         Assert.False(throttle.IsBlocked("email:a"));
+    }
+
+    // Regression for a lost-update race: Count() used to unconditionally
+    // remove a key from the dictionary once its queue was pruned to empty.
+    // A concurrent RecordFailure() that had already obtained that same
+    // queue reference via GetOrAdd (but had not yet taken its lock) would
+    // then enqueue into a queue no longer reachable from the dictionary,
+    // silently losing the failure. This test recreates that exact
+    // interleaving deterministically -- by capturing the queue reference
+    // "early" via reflection, exactly as a racing RecordFailure call would
+    // have, pruning it to empty afterwards, and only then enqueuing into
+    // the captured (stale, in the buggy version) reference -- instead of
+    // relying on real thread scheduling to hit the window.
+    [Fact]
+    public void Enqueuing_into_a_queue_reference_captured_before_a_concurrent_prune_is_not_lost()
+    {
+        var throttle = Throttle();
+
+        // Seed one failure that will expire, so the next check prunes this
+        // key's queue down to empty.
+        throttle.RecordFailure("k");
+        _time.Advance(TimeSpan.FromSeconds(61));
+
+        // Capture the exact queue instance backing "k" -- the same
+        // reference a concurrent RecordFailure("k") would have captured via
+        // GetOrAdd just before losing the race to the prune below.
+        var failuresField = typeof(LoginThrottle)
+            .GetField("_failures", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var failures = (ConcurrentDictionary<string, Queue<DateTimeOffset>>)failuresField.GetValue(throttle)!;
+        var queueCapturedBeforeThePrune = failures["k"];
+
+        // Prunes the now-expired seed entry down to empty. Before the fix,
+        // this branch removed "k" from the dictionary outright, orphaning
+        // queueCapturedBeforeThePrune.
+        Assert.False(throttle.IsBlocked("k"));
+
+        // The losing side of the race: enqueue into the reference captured
+        // above, as a RecordFailure("k") call delayed just past the prune
+        // would do.
+        lock (queueCapturedBeforeThePrune)
+            queueCapturedBeforeThePrune.Enqueue(_time.GetUtcNow());
+
+        // A normal failure recorded afterwards through the public API.
+        throttle.RecordFailure("k");
+        Assert.False(throttle.IsBlocked("k"));
+
+        // One more failure reaches the configured limit of 3 (the "late"
+        // enqueue + the two RecordFailure calls) only if none of them were
+        // lost -- i.e. only if the dictionary still points at the same
+        // queue the late enqueue landed in.
+        throttle.RecordFailure("k");
+        Assert.True(throttle.IsBlocked("k"));
     }
 }
 

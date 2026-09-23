@@ -172,4 +172,54 @@ public class CommissionEngineTests
         Assert.Throws<InvalidOperationException>(() =>
             CommissionEngine.Calculate(AprovecPlan(), Boletos(Pedro, 1, 100m).ToList(), paths, []));
     }
+
+    [Fact]
+    public void Duplicate_own_rules_are_rejected()
+    {
+        var plan = new CommissionPlan(Guid.NewGuid(), new DateOnly(2026, 8, 1),
+        [
+            new CommissionRule(Guid.NewGuid(), RuleType.Own, 0.05m),
+            new CommissionRule(Guid.NewGuid(), RuleType.Own, 0.03m),
+        ]);
+
+        Assert.Throws<ArgumentException>(() =>
+            CommissionEngine.Calculate(plan, Boletos(Joao, 1, 100m).ToList(), [], []));
+    }
+
+    [Fact]
+    public void Duplicate_upline_levels_are_rejected()
+    {
+        var plan = new CommissionPlan(Guid.NewGuid(), new DateOnly(2026, 8, 1),
+        [
+            new CommissionRule(Guid.NewGuid(), RuleType.Upline, 0.02m, Level: 1),
+            new CommissionRule(Guid.NewGuid(), RuleType.Upline, 0.03m, Level: 1),
+        ]);
+
+        Assert.Throws<ArgumentException>(() =>
+            CommissionEngine.Calculate(plan, Boletos(Joao, 1, 100m).ToList(), [], []));
+    }
+
+    [Fact]
+    public void Duplicate_global_groups_are_rejected()
+    {
+        var group = Guid.NewGuid();
+        var plan = new CommissionPlan(Guid.NewGuid(), new DateOnly(2026, 8, 1),
+        [
+            new CommissionRule(Guid.NewGuid(), RuleType.Global, 0.02m, GroupId: group),
+            new CommissionRule(Guid.NewGuid(), RuleType.Global, 0.03m, GroupId: group),
+        ]);
+
+        Assert.Throws<ArgumentException>(() =>
+            CommissionEngine.Calculate(plan, Boletos(Joao, 1, 100m).ToList(), [], []));
+    }
+
+    [Fact]
+    public void Unrecognized_rule_type_is_rejected()
+    {
+        var plan = new CommissionPlan(Guid.NewGuid(), new DateOnly(2026, 8, 1),
+            [new CommissionRule(Guid.NewGuid(), (RuleType)99, 0.05m)]);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            CommissionEngine.Calculate(plan, Boletos(Joao, 1, 100m).ToList(), [], []));
+    }
 }

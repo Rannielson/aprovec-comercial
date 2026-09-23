@@ -7,6 +7,7 @@ using Recorrencia.Api.Auth;
 using Recorrencia.Api.Authorization;
 using Recorrencia.Api.Email;
 using Recorrencia.Api.Infrastructure;
+using Recorrencia.Api.Roles;
 using Recorrencia.Api.Security;
 using Recorrencia.Api.Tenancy;
 using Recorrencia.Api.Users;
@@ -62,6 +63,7 @@ app.MapAuthEndpoints();
 app.MapMeEndpoints();
 app.MapPasswordEndpoints();
 app.MapUserEndpoints();
+app.MapRoleEndpoints();
 
 app.Run();
 

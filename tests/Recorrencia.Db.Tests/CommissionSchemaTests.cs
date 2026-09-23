@@ -25,6 +25,19 @@ public class CommissionSchemaTests(PostgresFixture db)
     }
 
     [Fact]
+    public async Task Moving_a_rule_out_of_an_active_plan_is_rejected()
+    {
+        var (t, _) = await _seed.ProvisionAsync();
+        var ruleId = await _seed.ScalarAsync<Guid>(
+            "select id from commission_rules where tenant_id = @t and type = 'own'", new { t });
+        var draft = await DraftPlanAsync(t);
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => _seed.ExecAsync(
+            "update commission_rules set plan_id = @draft where id = @ruleId", new { draft, ruleId }));
+        Assert.Equal("plan.active_immutable", ex.MessageText);
+    }
+
+    [Fact]
     public async Task Empty_plan_cannot_be_activated()
     {
         var (t, _) = await _seed.ProvisionAsync(planTemplate: null);

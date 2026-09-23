@@ -46,10 +46,45 @@ $$;
 create trigger users_guard before update of tenant_id on users
   for each row execute function app.users_guard();
 
+create function app.users_column_guard() returns trigger
+language plpgsql security definer set search_path = pg_catalog, public, app
+as $$
+begin
+  -- No acting authenticated app_user in this session (e.g. a trusted, pre-authentication
+  -- system flow such as invite consumption): nothing to check against RBAC permissions here,
+  -- those flows carry their own authorization (a valid invite/reset token). A real client
+  -- session always has app.user_id set once authenticated, which is what this guard protects.
+  if app.current_user_id() is null then
+    return new;
+  end if;
+
+  if new.supervisor_id is distinct from old.supervisor_id
+     and not app.has_permission('estrutura.editar') then
+    raise exception 'auth.forbidden' using errcode = 'P0001';
+  end if;
+
+  if new.status is distinct from old.status
+     and not app.has_permission('usuarios.desligar') then
+    raise exception 'auth.forbidden' using errcode = 'P0001';
+  end if;
+
+  if new.name is distinct from old.name or new.email is distinct from old.email then
+    raise exception 'auth.forbidden' using errcode = 'P0001';
+  end if;
+
+  return new;
+end
+$$;
+
+create trigger users_column_guard before update on users
+  for each row execute function app.users_column_guard();
+
 create function app.hierarchy_after_insert() returns trigger
 language plpgsql security definer set search_path = pg_catalog, public, app
 as $$
 begin
+  perform pg_advisory_xact_lock(hashtext('hierarchy:' || new.tenant_id::text));
+
   insert into hierarchy_paths (tenant_id, ancestor_id, descendant_id, depth)
   values (new.tenant_id, new.id, new.id, 0);
 

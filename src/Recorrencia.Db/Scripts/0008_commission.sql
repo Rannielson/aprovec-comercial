@@ -111,15 +111,23 @@ create trigger commission_plans_guard before update or delete on commission_plan
 create function app.commission_rules_guard() returns trigger
 language plpgsql security definer set search_path = pg_catalog, public, app
 as $$
-declare
-  v_plan uuid := case when tg_op = 'DELETE' then old.plan_id else new.plan_id end;
 begin
-  if exists (select 1 from commission_plans where id = v_plan and status = 'ativo') then
-    raise exception 'plan.active_immutable' using errcode = 'P0001';
-  end if;
   if tg_op = 'DELETE' then
+    if exists (select 1 from commission_plans where id = old.plan_id and status = 'ativo' for share) then
+      raise exception 'plan.active_immutable' using errcode = 'P0001';
+    end if;
     return old;
   end if;
+
+  if exists (select 1 from commission_plans where id = new.plan_id and status = 'ativo' for share) then
+    raise exception 'plan.active_immutable' using errcode = 'P0001';
+  end if;
+
+  if tg_op = 'UPDATE' and old.plan_id is distinct from new.plan_id
+     and exists (select 1 from commission_plans where id = old.plan_id and status = 'ativo' for share) then
+    raise exception 'plan.active_immutable' using errcode = 'P0001';
+  end if;
+
   return new;
 end
 $$;

@@ -139,6 +139,64 @@ public class BoletoFechamentoTests(PostgresFixture db)
     }
 
     [Fact]
+    public async Task Confirming_requires_the_confirmar_permission_not_just_provisionar()
+    {
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var u = await _seed.UserAsync(t, "Provisionador");
+        // Also grant fechamento.visualizar: PostgreSQL RLS requires a row to be visible under
+        // the SELECT policy for it to be an UPDATE target at all, independent of the UPDATE
+        // policy's own check. Without it the row simply wouldn't be selected (0 rows affected,
+        // no error) and the test wouldn't be exercising the trigger's permission check at all.
+        var role = await _seed.RoleAsync(t, "Só provisiona",
+            ("fechamento.visualizar", null), ("fechamento.provisionar", null));
+        await _seed.AssignRoleAsync(t, u, role);
+        var f = await FechamentoAsync(t);
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(t, u, (c, tx) => c.ExecuteAsync(
+            "update fechamentos set status = 'confirmado', confirmado_em = now(), confirmado_por = @u where id = @f",
+            new { f, u }, tx)));
+        Assert.Equal("auth.forbidden", ex.MessageText);
+    }
+
+    [Fact]
+    public async Task Confirming_succeeds_with_the_confirmar_permission()
+    {
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var u = await _seed.UserAsync(t, "Confirmador");
+        var role = await _seed.RoleAsync(t, "Confirma",
+            ("fechamento.visualizar", null), ("fechamento.confirmar", null));
+        await _seed.AssignRoleAsync(t, u, role);
+        var f = await FechamentoAsync(t);
+
+        var affected = await db.AsAppUserAsync(t, u, (c, tx) => c.ExecuteAsync(
+            "update fechamentos set status = 'confirmado', confirmado_em = now(), confirmado_por = @u where id = @f",
+            new { f, u }, tx));
+        Assert.Equal(1, affected);
+    }
+
+    [Fact]
+    public async Task Duplicate_detail_rows_are_rejected()
+    {
+        var t = await _seed.TenantAsync();
+        var u = await _seed.UserAsync(t, "Admin");
+        var boleto = await _seed.BoletoAsync(t, u, 200m, "recebido", "2026-08-05");
+        var f = await FechamentoAsync(t);
+        var ruleId = Guid.NewGuid();
+
+        const string insertDetail = """
+            insert into fechamento_detalhes
+              (tenant_id, fechamento_id, beneficiario_id, origem_participante_id, boleto_id, rule_id, rule_type, level, group_id, rate, base, valor)
+            values (@t, @f, @u, @u, @boleto, @ruleId, 'own', null, null, 0.07, 200, 14)
+            """;
+        await _seed.ExecAsync(insertDetail, new { t, f, u, boleto, ruleId });
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => _seed.ExecAsync(insertDetail, new { t, f, u, boleto, ruleId }));
+        Assert.Equal(PostgresErrorCodes.UniqueViolation, ex.SqlState);
+    }
+
+    [Fact]
     public async Task Details_cannot_be_added_after_confirmation()
     {
         var t = await _seed.TenantAsync();

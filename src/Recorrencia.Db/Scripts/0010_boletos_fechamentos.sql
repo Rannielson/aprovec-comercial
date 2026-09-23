@@ -67,6 +67,29 @@ begin
     raise exception 'fechamento.invalid_transition' using errcode = 'P0001';
   end if;
 
+  -- Permission/actor checks below only apply when there is an authenticated app_user session
+  -- (app.current_user_id() is not null). Trusted internal, pre-authentication flows have no
+  -- acting user context and are governed by their own checks, not RBAC permissions.
+  if new.status = 'confirmado' and old.status is distinct from 'confirmado'
+     and app.current_user_id() is not null then
+    if not app.has_permission('fechamento.confirmar') then
+      raise exception 'auth.forbidden' using errcode = 'P0001';
+    end if;
+    if new.confirmado_por is distinct from app.current_user_id() then
+      raise exception 'auth.forbidden' using errcode = 'P0001';
+    end if;
+  end if;
+
+  if new.status = 'provisionado' and old.status is distinct from 'provisionado'
+     and app.current_user_id() is not null then
+    if not app.has_permission('fechamento.provisionar') then
+      raise exception 'auth.forbidden' using errcode = 'P0001';
+    end if;
+    if new.provisionado_por is distinct from app.current_user_id() then
+      raise exception 'auth.forbidden' using errcode = 'P0001';
+    end if;
+  end if;
+
   if old.status in ('confirmado', 'provisionado')
      and (new.confirmado_em is distinct from old.confirmado_em or new.confirmado_por is distinct from old.confirmado_por) then
     raise exception 'fechamento.immutable' using errcode = 'P0001';
@@ -102,7 +125,8 @@ create table fechamento_detalhes (
   foreign key (tenant_id, fechamento_id) references fechamentos (tenant_id, id),
   foreign key (tenant_id, beneficiario_id) references users (tenant_id, id),
   foreign key (tenant_id, origem_participante_id) references users (tenant_id, id),
-  foreign key (tenant_id, boleto_id) references boletos (tenant_id, id)
+  foreign key (tenant_id, boleto_id) references boletos (tenant_id, id),
+  unique (fechamento_id, beneficiario_id, boleto_id, rule_id)
 );
 
 create index fechamento_detalhes_beneficiario_idx on fechamento_detalhes (fechamento_id, beneficiario_id);
@@ -110,8 +134,13 @@ create index fechamento_detalhes_beneficiario_idx on fechamento_detalhes (fecham
 create function app.fechamento_detalhes_guard() returns trigger
 language plpgsql security definer set search_path = pg_catalog, public, app
 as $$
+declare
+  v_status text;
 begin
-  if exists (select 1 from fechamentos where id = new.fechamento_id and status in ('confirmado', 'provisionado')) then
+  -- Lock the parent row itself (regardless of its current status) so a concurrent
+  -- confirm/provisionar transition on the same fechamento can't interleave with this insert.
+  select status into v_status from fechamentos where id = new.fechamento_id for share;
+  if v_status in ('confirmado', 'provisionado') then
     raise exception 'fechamento.immutable' using errcode = 'P0001';
   end if;
   return new;

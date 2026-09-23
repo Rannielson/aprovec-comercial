@@ -31,6 +31,30 @@ public class HierarchyTests(PostgresFixture db)
     }
 
     [Fact]
+    public async Task Inserting_under_a_recently_moved_supervisor_sees_the_new_ancestor_chain()
+    {
+        // Regression for the advisory lock added to hierarchy_after_insert: the lock's
+        // per-tenant scoping must line up with hierarchy_before_update's, so that a supervisor
+        // move and a subsequent insert under that supervisor never interleave into a stale
+        // ancestor chain. This exercises the same lock/read path sequentially (no real
+        // concurrency), just to confirm the lock addition didn't change correctness.
+        var t = await _seed.TenantAsync();
+        var joao = await _seed.UserAsync(t, "João");
+        var maria = await _seed.UserAsync(t, "Maria");
+        var bruno = await _seed.UserAsync(t, "Bruno", joao);
+
+        await _seed.ExecAsync("update users set supervisor_id = @maria where id = @bruno", new { maria, bruno });
+        var pedro = await _seed.UserAsync(t, "Pedro", bruno);
+
+        var expected = new HashSet<(Guid, Guid, int)>
+        {
+            (joao, joao, 0), (maria, maria, 0), (bruno, bruno, 0), (pedro, pedro, 0),
+            (maria, bruno, 1), (maria, pedro, 2), (bruno, pedro, 1),
+        };
+        Assert.True(expected.SetEquals(await PathsAsync(t)));
+    }
+
+    [Fact]
     public async Task Moving_a_user_moves_the_whole_subtree()
     {
         var t = await _seed.TenantAsync();
@@ -95,5 +119,82 @@ public class HierarchyTests(PostgresFixture db)
 
         var ex = await DbExtensions.ThrowsPgAsync(() => _seed.UserAsync(t2, "B", a));
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, ex.SqlState);
+    }
+
+    // Fix E: app.users_column_guard() must enforce that each column of `users` can only be
+    // changed by a caller holding the specific permission that governs it, instead of the
+    // RLS policy's coarse "estrutura.editar OR usuarios.desligar" OR-gate letting either
+    // permission unlock every column.
+
+    [Fact]
+    public async Task Estrutura_editar_alone_cannot_change_status()
+    {
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var u = await _seed.UserAsync(t, "Editor de estrutura");
+        var role = await _seed.RoleAsync(t, "Só estrutura", ("estrutura.editar", null));
+        await _seed.AssignRoleAsync(t, u, role);
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(t, u, (c, tx) =>
+            c.ExecuteAsync("update users set status = 'desligado' where id = @u", new { u }, tx)));
+        Assert.Equal("auth.forbidden", ex.MessageText);
+    }
+
+    [Fact]
+    public async Task Usuarios_desligar_alone_cannot_change_supervisor_id()
+    {
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var u = await _seed.UserAsync(t, "Desliga usuários");
+        var other = await _seed.UserAsync(t, "Outro");
+        var role = await _seed.RoleAsync(t, "Só desligar", ("usuarios.desligar", null));
+        await _seed.AssignRoleAsync(t, u, role);
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(t, u, (c, tx) =>
+            c.ExecuteAsync("update users set supervisor_id = @other where id = @u", new { u, other }, tx)));
+        Assert.Equal("auth.forbidden", ex.MessageText);
+    }
+
+    [Fact]
+    public async Task Estrutura_editar_alone_cannot_change_email()
+    {
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var u = await _seed.UserAsync(t, "Editor de estrutura");
+        var role = await _seed.RoleAsync(t, "Só estrutura", ("estrutura.editar", null));
+        await _seed.AssignRoleAsync(t, u, role);
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(t, u, (c, tx) =>
+            c.ExecuteAsync("update users set email = 'novo@teste.local' where id = @u", new { u }, tx)));
+        Assert.Equal("auth.forbidden", ex.MessageText);
+    }
+
+    [Fact]
+    public async Task Estrutura_editar_can_change_supervisor_id()
+    {
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var u = await _seed.UserAsync(t, "Editor de estrutura");
+        var other = await _seed.UserAsync(t, "Outro");
+        var role = await _seed.RoleAsync(t, "Só estrutura", ("estrutura.editar", null));
+        await _seed.AssignRoleAsync(t, u, role);
+
+        var affected = await db.AsAppUserAsync(t, u, (c, tx) =>
+            c.ExecuteAsync("update users set supervisor_id = @other where id = @u", new { u, other }, tx));
+        Assert.Equal(1, affected);
+    }
+
+    [Fact]
+    public async Task Usuarios_desligar_can_change_status()
+    {
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var u = await _seed.UserAsync(t, "Desliga usuários");
+        var role = await _seed.RoleAsync(t, "Só desligar", ("usuarios.desligar", null));
+        await _seed.AssignRoleAsync(t, u, role);
+
+        var affected = await db.AsAppUserAsync(t, u, (c, tx) =>
+            c.ExecuteAsync("update users set status = 'desligado' where id = @u", new { u }, tx));
+        Assert.Equal(1, affected);
     }
 }

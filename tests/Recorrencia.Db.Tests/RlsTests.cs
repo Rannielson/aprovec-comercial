@@ -219,6 +219,41 @@ public class RlsTests(PostgresFixture db)
     }
 
     [Fact]
+    public async Task Every_tenant_scoped_table_has_a_restrictive_tenant_isolation_policy()
+    {
+        // FORCE ROW SECURITY alone doesn't prove tenant isolation: both roles that could ever
+        // bypass a policy (app_owner, app_superadmin) already have BYPASSRLS regardless of
+        // FORCE. What actually guarantees isolation is a RESTRICTIVE policy covering every
+        // command, which is ANDed with any permissive policy and can never be OR'd away.
+        await using var conn = await db.OpenAsync(db.OwnerConnectionString);
+        var tables = (await conn.QueryAsync<string>(
+            """
+            select distinct c.relname
+              from pg_class c
+              join pg_attribute a on a.attrelid = c.oid
+             where a.attname = 'tenant_id'
+               and c.relkind = 'r'
+               and c.relnamespace = 'public'::regnamespace
+               and not a.attisdropped
+            """)).ToList();
+
+        Assert.NotEmpty(tables);
+        foreach (var relName in tables)
+        {
+            var hasRestrictivePolicy = await conn.ExecuteScalarAsync<bool>(
+                """
+                select exists (
+                  select 1 from pg_policies
+                   where schemaname = 'public' and tablename = @relName
+                     and permissive = 'RESTRICTIVE' and cmd = 'ALL'
+                )
+                """,
+                new { relName });
+            Assert.True(hasRestrictivePolicy, $"{relName} deveria ter uma policy restrictive de isolamento por tenant");
+        }
+    }
+
+    [Fact]
     public async Task Update_cannot_move_a_row_into_another_tenant()
     {
         var s = await RlsScenario.CreateAsync(db);

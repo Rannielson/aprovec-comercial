@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Npgsql;
 using Recorrencia.Api;
 using Recorrencia.Api.Infrastructure;
+using Recorrencia.Api.Security;
 using Recorrencia.Db;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,6 +27,10 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddSingleton<Database>();
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower)));
+
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<PasswordHasher>();
+builder.Services.AddSingleton<LoginThrottle>();
 
 var app = builder.Build();
 

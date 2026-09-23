@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Recorrencia.Db/Recorrencia.Db.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Recorrencia.Db.Tests/Recorrencia.Db.Tests.csproj" />
+    <Project Path="tests/Recorrencia.TestSupport/Recorrencia.TestSupport.csproj" />
+  </Folder>
+</Solution>

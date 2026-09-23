@@ -1,2 +1,10 @@
 .12ui/
 tmp/
+.env
+bin/
+obj/
+TestResults/
+node_modules/
+.next/
+playwright-report/
+test-results/

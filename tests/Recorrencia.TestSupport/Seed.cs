@@ -39,4 +39,27 @@ public sealed class Seed(PostgresFixture db)
                 status,
                 supervisorId,
             });
+
+    public Task EnableModulesAsync(Guid tenantId) =>
+        ExecAsync(
+            "insert into tenant_modules (tenant_id, module_key) select @tenantId, key from modules on conflict do nothing",
+            new { tenantId });
+
+    public async Task<Guid> RoleAsync(Guid tenantId, string name, params (string Key, string? Scope)[] permissions)
+    {
+        var roleId = await ScalarAsync<Guid>(
+            "insert into roles (tenant_id, name) values (@tenantId, @name) returning id", new { tenantId, name });
+        foreach (var (key, scope) in permissions)
+        {
+            await ExecAsync(
+                "insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenantId, @roleId, @key, @scope)",
+                new { tenantId, roleId, key, scope });
+        }
+        return roleId;
+    }
+
+    public Task AssignRoleAsync(Guid tenantId, Guid userId, Guid roleId) =>
+        ExecAsync(
+            "insert into user_roles (tenant_id, user_id, role_id) values (@tenantId, @userId, @roleId)",
+            new { tenantId, userId, roleId });
 }

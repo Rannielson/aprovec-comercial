@@ -62,4 +62,21 @@ public sealed class Seed(PostgresFixture db)
         ExecAsync(
             "insert into user_roles (tenant_id, user_id, role_id) values (@tenantId, @userId, @roleId)",
             new { tenantId, userId, roleId });
+
+    public Task<(Guid TenantId, Guid AdminId)> ProvisionAsync(string? slug = null, string? planTemplate = "aprovec", string effectiveFrom = "2026-08-01") =>
+        db.AsSuperadminAsync(null, (c, t) => c.QuerySingleAsync<(Guid, Guid)>(
+            """
+            select tenant_id, admin_user_id
+              from app.provision_tenant(@slug, 'Empresa provisionada', 'Admin', @adminEmail, @planTemplate, @effectiveFrom::date)
+            """,
+            new { slug = slug ?? UniqueSlug(), adminEmail = $"admin-{Guid.NewGuid():N}@teste.local", planTemplate, effectiveFrom },
+            t));
+
+    public Task AssignTemplateRoleAsync(Guid tenantId, Guid userId, string templateKey) =>
+        ExecAsync(
+            """
+            insert into user_roles (tenant_id, user_id, role_id)
+            select @tenantId, @userId, id from roles where tenant_id = @tenantId and source_template_key = @templateKey
+            """,
+            new { tenantId, userId, templateKey });
 }

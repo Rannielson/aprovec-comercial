@@ -5,6 +5,7 @@ using Npgsql;
 using Recorrencia.Api;
 using Recorrencia.Api.Auth;
 using Recorrencia.Api.Authorization;
+using Recorrencia.Api.Commissions;
 using Recorrencia.Api.Email;
 using Recorrencia.Api.Infrastructure;
 using Recorrencia.Api.Roles;
@@ -64,6 +65,7 @@ app.MapMeEndpoints();
 app.MapPasswordEndpoints();
 app.MapUserEndpoints();
 app.MapRoleEndpoints();
+app.MapCommissionPlanEndpoints();
 
 app.Run();
 

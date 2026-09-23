@@ -42,7 +42,18 @@ public static class AuthEndpoints
         if (!throttle.TryReserve(keys))
             throw new ApiProblem(StatusCodes.Status429TooManyRequests, "auth.too_many_attempts");
 
-        var failed = true;
+        // `failed` starts false and is flipped to true ONLY in the actual
+        // wrong-password/unknown-user branch below. An unrelated exception
+        // before credentials are even checked (a DB connectivity error, a
+        // cancelled request, anything) must NOT count as a login failure --
+        // no password was checked, so an attacker forcing exceptions gains
+        // nothing, while counting it would let a transient outage lock out
+        // a shared office IP for up to the full window after the database
+        // recovers. `succeeded` is separate from `!failed`, so an
+        // inconclusive attempt (an exception, `failed` still false) does
+        // not get treated as a real success either.
+        var failed = false;
+        var succeeded = false;
         try
         {
             var login = await db.AnonymousAsync(tx => tx.QuerySingleOrDefaultAsync<LoginRow>(
@@ -52,9 +63,12 @@ public static class AuthEndpoints
                 ? hasher.Verify(password, login.PasswordHash)
                 : hasher.VerifyAgainstDummy(password);
             if (!valid)
+            {
+                failed = true;
                 throw new ApiProblem(StatusCodes.Status401Unauthorized, "auth.invalid_credentials");
+            }
 
-            failed = false;
+            succeeded = true;
             var session = await Sessions.CreateForUserAsync(db, request, tenant, login!.UserId, options.Value, time, ct);
 
             if (hasher.NeedsRehash(login.PasswordHash!))
@@ -71,7 +85,7 @@ public static class AuthEndpoints
             // Always releases the reservation made above, on every exit path
             // (success, invalid credentials, or an unexpected exception).
             throttle.Complete(keys, failed);
-            if (!failed)
+            if (succeeded)
                 throttle.Reset(emailKey);
         }
     }

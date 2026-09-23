@@ -168,8 +168,13 @@ public class LoginThrottleTests
             .Select(_ => Task.Run(() => throttle.TryReserve("ip:1", "email:a"))));
 
         var succeeded = results.Count(ok => ok);
-        Assert.True(succeeded <= 5, $"expected at most 5 of {attempts} concurrent reservations to succeed, but {succeeded} did");
-        Assert.True(succeeded >= 1, "expected at least one reservation to succeed");
+        // Exactly 5, not merely "at most 5": none of the 5 successful
+        // reservations are ever completed/released in this test, so once
+        // the 5th lands, every later concurrent call must see the limit
+        // reached and be blocked. `<=` would also pass a fix that was too
+        // aggressive and blocked everything; the property under test is
+        // "exactly N get through".
+        Assert.Equal(5, succeeded);
     }
 
     // Important-fix regression (unbounded growth): stresses the exact
@@ -229,6 +234,68 @@ public class LoginThrottleTests
         var entries = (System.Collections.IDictionary)
             typeof(LoginThrottle).GetField("_entries", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(throttle)!;
         Assert.False(entries.Contains("k"));
+    }
+
+    // Important-fix regression (unbounded growth), the case the eviction
+    // test above does NOT cover: a key that fails once and is then NEVER
+    // touched again (the common case -- most one-off failed logins don't
+    // come back). ReleaseEntry alone can't evict that, because nothing
+    // ever calls it for that key again. The opportunistic sweep is what
+    // reaches it: triggered here from an unrelated TryReserve call, well
+    // after the failure window has passed.
+    [Fact]
+    public void Sweep_evicts_keys_whose_last_event_was_a_failure_nobody_revisits()
+    {
+        var throttle = Throttle();
+        for (var i = 0; i < 8; i++)
+            Fail(throttle, $"one-off:{i}");
+
+        _time.Advance(TimeSpan.FromSeconds(61));
+
+        // A single, otherwise unrelated reservation is enough to trigger
+        // the opportunistic sweep (gated so it runs at most once per
+        // FailureWindowSeconds) -- none of the 8 one-off keys above are
+        // touched directly.
+        Assert.True(Reserved(throttle, "unrelated"));
+
+        var entries = (System.Collections.IDictionary)
+            typeof(LoginThrottle).GetField("_entries", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(throttle)!;
+        Assert.Empty(entries);
+    }
+
+    // Important-fix regression (unrelated exceptions must not count as
+    // failures): mirrors the AuthEndpoints.LoginAsync contract directly at
+    // the throttle level. A reservation completed with failed=false must
+    // never be recorded as a failure -- whether that's because the login
+    // actually succeeded, or because something aborted the attempt before
+    // a verdict was ever reached (a DB error, a cancelled request, etc).
+    // From the throttle's point of view there is no third option, and
+    // there must not be one: the endpoint's "failed starts false, flips to
+    // true only in the !valid branch" fix is only safe because Complete
+    // treats every non-failed completion identically.
+    [Fact]
+    public void Completing_an_inconclusive_reservation_does_not_count_as_a_failure()
+    {
+        var throttle = Throttle(); // Max = 3
+
+        // Three "inconclusive" attempts, as if a DB outage aborted each one
+        // before the password was ever checked.
+        for (var i = 0; i < 3; i++)
+        {
+            Assert.True(throttle.TryReserve("email:a"));
+            throttle.Complete(["email:a"], failed: false);
+        }
+
+        // None of those counted: it still takes exactly 3 REAL failures
+        // (not 0, and not fewer) to reach the limit of 3 -- proving the
+        // three inconclusive completions above left the recorded-failure
+        // count untouched.
+        Fail(throttle, "email:a");
+        Assert.True(Reserved(throttle, "email:a"));
+        Fail(throttle, "email:a");
+        Assert.True(Reserved(throttle, "email:a"));
+        Fail(throttle, "email:a");
+        Assert.False(Reserved(throttle, "email:a"));
     }
 }
 

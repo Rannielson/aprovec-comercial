@@ -5,10 +5,12 @@ using Npgsql;
 using Recorrencia.Api;
 using Recorrencia.Api.Auth;
 using Recorrencia.Api.Authorization;
+using Recorrencia.Api.Cli;
 using Recorrencia.Api.Commissions;
 using Recorrencia.Api.Email;
 using Recorrencia.Api.Fechamentos;
 using Recorrencia.Api.Infrastructure;
+using Recorrencia.Api.Platform;
 using Recorrencia.Api.Roles;
 using Recorrencia.Api.Security;
 using Recorrencia.Api.Tenancy;
@@ -54,6 +56,18 @@ builder.Services.AddSingleton<IEmailSender>(sp =>
 
 var app = builder.Build();
 
+if (args is ["seed-dev"])
+{
+    await DevSeed.RunAsync(app.Services);
+    return;
+}
+
+if (args is ["create-platform-admin", var platformAdminEmail])
+{
+    await PlatformAdmins.RunFromCommandLineAsync(app.Services, platformAdminEmail);
+    return;
+}
+
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseMiddleware<InternalKeyMiddleware>();
 app.UseMiddleware<HostContextMiddleware>();
@@ -69,6 +83,7 @@ app.MapRoleEndpoints();
 app.MapCommissionPlanEndpoints();
 app.MapCommissionEndpoints();
 app.MapFechamentoEndpoints();
+app.MapPlatformEndpoints();
 
 app.Run();
 

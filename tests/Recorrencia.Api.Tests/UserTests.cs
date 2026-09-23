@@ -1,4 +1,7 @@
+using Npgsql;
+using Recorrencia.Api.Authorization;
 using Recorrencia.Api.Cli;
+using Recorrencia.Api.Infrastructure;
 
 namespace Recorrencia.Api.Tests;
 
@@ -123,6 +126,100 @@ public class UserTests(ApiFixture api)
         var response = await (await LoginAsync(s, "admin")).PostAsync($"/users/{s.Admin}/deactivate");
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("role.last_admin", await ApiClient.CodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Last_profile_manager_cannot_have_role_management_removed_via_set_roles()
+    {
+        var s = await api.SeedAsync();
+        var response = await (await LoginAsync(s, "admin")).PutAsync($"/users/{s.Admin}/roles", new { roleIds = Array.Empty<Guid>() });
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("role.last_admin", await ApiClient.CodeAsync(response));
+    }
+
+    // Reproduces the TOCTOU race the count-then-fail guard is exposed to without a lock:
+    // two concurrent transactions each remove a DIFFERENT one of the tenant's last two
+    // role-managers. Under plain READ COMMITTED, each transaction's own uncommitted removal
+    // is invisible to the other until commit, so both counts could read "1 manager still
+    // active" and both would pass -- leaving zero role-managers once both commit. This test
+    // drives the two transactions directly (bypassing the HTTP layer, per the reviewer's
+    // guidance) so the interleaving is guaranteed rather than merely likely: both removals are
+    // applied -- uncommitted -- before either transaction's guard check runs, then both guard
+    // checks run genuinely concurrently via Task.WhenAll. With the per-tenant advisory lock in
+    // `RoleGuards.EnsureProfileManagerRemainsAsync`, exactly one of the two must fail.
+    [Fact]
+    public async Task Concurrently_removing_the_last_two_role_managers_lets_only_one_succeed()
+    {
+        var s = await api.SeedAsync();
+        var administrador = await RoleIdAsync(s.TenantId, "administrador");
+
+        // Give Joao the manager role too, so the tenant now has two active role-managers
+        // (the seeded Admin, and Joao).
+        await api.SqlAsync(
+            "insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @joao, @administrador)",
+            new { tenant = s.TenantId, joao = s.Joao, administrador });
+
+        var sources = api.Service<DataSources>();
+
+        async Task<(NpgsqlConnection Connection, NpgsqlTransaction Transaction, Tx Wrapped)> BeginAsync(Guid actingUser)
+        {
+            var connection = await sources.App.OpenConnectionAsync();
+            var transaction = await connection.BeginTransactionAsync();
+            await connection.ExecuteAsync(
+                "select set_config('app.tenant_id', @t, true), set_config('app.user_id', @u, true)",
+                new { t = s.TenantId.ToString(), u = actingUser.ToString() }, transaction);
+            return (connection, transaction, new Tx(connection, transaction));
+        }
+
+        var admin = await BeginAsync(s.Admin);
+        var joao = await BeginAsync(s.Joao);
+
+        // Each transaction removes a different manager's role-management permission --
+        // uncommitted -- before either one runs its guard check.
+        await admin.Wrapped.ExecuteAsync(
+            "delete from user_roles where tenant_id = @t and user_id = @u and role_id = @r",
+            new { t = s.TenantId, u = s.Admin, r = administrador });
+        await joao.Wrapped.ExecuteAsync(
+            "delete from user_roles where tenant_id = @t and user_id = @u and role_id = @r",
+            new { t = s.TenantId, u = s.Joao, r = administrador });
+
+        // Each side must commit or roll back its OWN transaction as soon as its OWN check
+        // resolves -- not wait for the other side's result first. Whichever task wins the
+        // advisory lock has to commit (releasing the lock) before the other can even acquire
+        // it and proceed; gating both commits on the combined Task.WhenAll result would
+        // deadlock the two transactions against each other.
+        static async Task<bool> CheckThenFinishAsync(Tx tx, NpgsqlTransaction transaction)
+        {
+            try
+            {
+                await RoleGuards.EnsureProfileManagerRemainsAsync(tx);
+                await transaction.CommitAsync();
+                return true;
+            }
+            catch (ApiProblem e) when (e.Code == "role.last_admin")
+            {
+                await transaction.RollbackAsync();
+                return false;
+            }
+        }
+
+        var results = await Task.WhenAll(
+            CheckThenFinishAsync(admin.Wrapped, admin.Transaction),
+            CheckThenFinishAsync(joao.Wrapped, joao.Transaction));
+        Assert.Equal(1, results.Count(ok => ok));
+
+        await admin.Connection.DisposeAsync();
+        await joao.Connection.DisposeAsync();
+
+        var remainingManagers = await api.SqlScalarAsync<int>(
+            """
+            select count(distinct u.id)::int
+              from users u
+              join user_roles ur on ur.user_id = u.id and ur.role_id = @administrador
+             where u.tenant_id = @tenant and u.status = 'ativo'
+            """,
+            new { tenant = s.TenantId, administrador });
+        Assert.Equal(1, remainingManagers);
     }
 
     [Fact]

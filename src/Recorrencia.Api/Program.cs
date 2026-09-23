@@ -1,9 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using Recorrencia.Api;
 using Recorrencia.Api.Auth;
 using Recorrencia.Api.Authorization;
+using Recorrencia.Api.Email;
 using Recorrencia.Api.Infrastructure;
 using Recorrencia.Api.Security;
 using Recorrencia.Api.Tenancy;
@@ -40,6 +42,12 @@ builder.Services.AddSingleton<TenantResolver>();
 builder.Services.AddScoped<RequestContext>();
 builder.Services.AddScoped<CurrentPermissions>();
 
+builder.Services.AddSingleton<LinkBuilder>();
+builder.Services.AddSingleton<IEmailSender>(sp =>
+    string.IsNullOrEmpty(sp.GetRequiredService<IOptions<EmailOptions>>().Value.OutboxDir)
+        ? ActivatorUtilities.CreateInstance<LogEmailSender>(sp)
+        : ActivatorUtilities.CreateInstance<FileEmailSender>(sp));
+
 var app = builder.Build();
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
@@ -51,6 +59,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapTenantEndpoints();
 app.MapAuthEndpoints();
 app.MapMeEndpoints();
+app.MapPasswordEndpoints();
 
 app.Run();
 

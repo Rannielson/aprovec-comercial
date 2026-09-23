@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Recorrencia.Api.Cli;
 using Recorrencia.Api.Infrastructure;
 using Recorrencia.Api.Security;
@@ -13,6 +14,7 @@ public sealed class ApiFixture : IAsyncLifetime
 
     public PostgresFixture Db { get; } = new();
     public WebApplicationFactory<Program> Factory { get; private set; } = null!;
+    public CapturingEmailSender Emails { get; } = new();
 
     public async Task InitializeAsync()
     {
@@ -28,6 +30,12 @@ public sealed class ApiFixture : IAsyncLifetime
             builder.UseSetting("Auth:MaxFailuresPerWindow", "5");
             builder.UseSetting("Web:Scheme", "http");
             builder.UseSetting("Web:RootDomain", "localhost:3000");
+
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<Recorrencia.Api.Email.IEmailSender>();
+                services.AddSingleton<Recorrencia.Api.Email.IEmailSender>(Emails);
+            });
         });
     }
 

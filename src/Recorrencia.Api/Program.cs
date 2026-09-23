@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Npgsql;
 using Recorrencia.Api;
+using Recorrencia.Api.Auth;
+using Recorrencia.Api.Authorization;
 using Recorrencia.Api.Infrastructure;
 using Recorrencia.Api.Security;
 using Recorrencia.Api.Tenancy;
@@ -36,15 +38,19 @@ builder.Services.AddSingleton<LoginThrottle>();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<TenantResolver>();
 builder.Services.AddScoped<RequestContext>();
+builder.Services.AddScoped<CurrentPermissions>();
 
 var app = builder.Build();
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseMiddleware<InternalKeyMiddleware>();
 app.UseMiddleware<HostContextMiddleware>();
+app.UseMiddleware<SessionMiddleware>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapTenantEndpoints();
+app.MapAuthEndpoints();
+app.MapMeEndpoints();
 
 app.Run();
 

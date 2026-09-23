@@ -39,6 +39,12 @@ builder.Services.AddSingleton<Database>();
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower)));
 
+// Unconditional (the framework default only sets this in Development): a malformed body or
+// a missing required parameter must always throw BadHttpRequestException so it's caught by
+// ErrorHandlingMiddleware and shaped as Problem Details (400 request.invalid), not fall
+// through to a bare, content-type-less 400 outside Development.
+builder.Services.Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = true);
+
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<LoginThrottle>();

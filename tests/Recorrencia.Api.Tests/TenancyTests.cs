@@ -32,6 +32,34 @@ public class TenancyTests(ApiFixture api)
         Assert.Equal("tenant.not_found", await ApiClient.CodeAsync(response));
     }
 
+    // Obviously-invalid subdomain shapes (uppercase, underscores) still resolve to a clean
+    // 404, exactly like an unknown-but-validly-shaped slug would.
+    [Theory]
+    [InlineData("Tem-Maiuscula")]
+    [InlineData("tem_underscore")]
+    public async Task Invalid_slug_shape_is_not_found(string host)
+    {
+        var response = await api.Client(host).GetAsync("/tenant");
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("tenant.not_found", await ApiClient.CodeAsync(response));
+    }
+
+    // Unit-level check that an invalid slug shape is rejected before it ever becomes a cache
+    // entry (positive or negative) -- unlike a validly-shaped-but-unknown slug, which IS
+    // cached (see Suspended_tenant_is_not_found's use of Invalidate below).
+    [Fact]
+    public async Task Invalid_slug_shape_creates_no_cache_entry()
+    {
+        var resolver = api.Service<TenantResolver>();
+        var cache = api.Service<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
+        const string slug = "Invalid_Slug!";
+
+        var info = await resolver.ResolveActiveAsync(slug, CancellationToken.None);
+
+        Assert.Null(info);
+        Assert.False(cache.TryGetValue("tenant:" + slug.ToLowerInvariant(), out _));
+    }
+
     [Fact]
     public async Task Suspended_tenant_is_not_found()
     {

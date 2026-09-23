@@ -69,6 +69,18 @@ public class UserTests(ApiFixture api)
         Assert.Contains(joaoSees, u => u.Id == id && u.Status == "ativo");
     }
 
+    // MailAddress.TryCreate happily parses "Nome <x@y.com>" and, without this check, the
+    // ORIGINAL string (display name included) would be stored as the email address.
+    [Fact]
+    public async Task Email_with_a_display_name_is_rejected()
+    {
+        var s = await api.SeedAsync();
+        var response = await (await LoginAsync(s, "admin")).PostAsync("/users",
+            new { name = "X", email = $"Alguém <x@{s.Slug}.local>" });
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("users.invalid_email", await ApiClient.CodeAsync(response));
+    }
+
     [Fact]
     public async Task Duplicate_email_is_rejected()
     {
@@ -243,6 +255,110 @@ public class UserTests(ApiFixture api)
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal("role.grant_exceeds_own", await ApiClient.CodeAsync(response));
+    }
+
+    // A role-manager holding ONLY usuarios.gerenciar_perfis must not be able to strip a role
+    // assignment from a user when that role grants a permission the actor doesn't personally
+    // hold -- removal must be gated exactly like granting is (Cannot_grant_a_role_beyond_own_permissions).
+    private async Task<(Guid Gestor, Guid Financeiro)> SeedGestorAndFinanceiroAssignedToPedroAsync(SeededTenant s)
+    {
+        var gestor = Guid.NewGuid();
+        var financeiro = Guid.NewGuid();
+        await api.SqlAsync(
+            """
+            insert into roles (id, tenant_id, name) values (@gestor, @tenant, 'Gestor de perfis');
+            insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenant, @gestor, 'usuarios.gerenciar_perfis', null);
+            insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @maria, @gestor);
+            insert into roles (id, tenant_id, name) values (@financeiro, @tenant, 'Financeiro');
+            insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenant, @financeiro, 'fechamento.confirmar', null);
+            insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @pedro, @financeiro);
+            """,
+            new { gestor, financeiro, tenant = s.TenantId, maria = s.Maria, pedro = s.Pedro });
+        return (gestor, financeiro);
+    }
+
+    [Fact]
+    public async Task Role_manager_cannot_remove_from_a_user_a_role_granting_a_permission_they_do_not_hold()
+    {
+        var s = await api.SeedAsync();
+        var (_, financeiro) = await SeedGestorAndFinanceiroAssignedToPedroAsync(s);
+
+        var response = await (await LoginAsync(s, "maria")).PutAsync($"/users/{s.Pedro}/roles", new { roleIds = Array.Empty<Guid>() });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("role.grant_exceeds_own", await ApiClient.CodeAsync(response));
+        var pedro = (await (await LoginAsync(s, "admin")).GetJsonAsync<List<UserDto>>("/users")).Single(u => u.Id == s.Pedro);
+        Assert.Contains(financeiro, pedro.RoleIds);
+    }
+
+    [Fact]
+    public async Task Role_manager_who_holds_the_permission_can_still_remove_the_role_from_a_user()
+    {
+        var s = await api.SeedAsync();
+        var (gestor, financeiro) = await SeedGestorAndFinanceiroAssignedToPedroAsync(s);
+        await api.SqlAsync(
+            "insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenant, @gestor, 'fechamento.confirmar', null)",
+            new { tenant = s.TenantId, gestor });
+
+        var response = await (await LoginAsync(s, "maria")).PutAsync($"/users/{s.Pedro}/roles", new { roleIds = Array.Empty<Guid>() });
+
+        await ApiClient.ExpectAsync(response, HttpStatusCode.NoContent);
+    }
+
+    // usuarios.convidar alone must not let an inviter place a new user anywhere in the
+    // hierarchy: supervisorId drives upline commission, so it needs estrutura.editar just
+    // like assigning roles needs usuarios.gerenciar_perfis (the existing gate right above
+    // this one in InviteAsync).
+    [Fact]
+    public async Task Inviter_without_estrutura_editar_cannot_set_a_supervisor()
+    {
+        var s = await api.SeedAsync();
+        var recrutador = Guid.NewGuid();
+        await api.SqlAsync(
+            """
+            insert into roles (id, tenant_id, name) values (@recrutador, @tenant, 'Recrutador');
+            insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenant, @recrutador, 'usuarios.convidar', null);
+            insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @maria, @recrutador);
+            """,
+            new { recrutador, tenant = s.TenantId, maria = s.Maria });
+
+        var response = await (await LoginAsync(s, "maria")).PostAsync("/users",
+            new { name = "Nova", email = $"nova@{s.Slug}.local", supervisorId = s.Joao });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("auth.forbidden", await ApiClient.CodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Inviter_without_estrutura_editar_can_still_invite_without_a_supervisor()
+    {
+        var s = await api.SeedAsync();
+        var recrutador = Guid.NewGuid();
+        await api.SqlAsync(
+            """
+            insert into roles (id, tenant_id, name) values (@recrutador, @tenant, 'Recrutador');
+            insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenant, @recrutador, 'usuarios.convidar', null);
+            insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @maria, @recrutador);
+            """,
+            new { recrutador, tenant = s.TenantId, maria = s.Maria });
+
+        var response = await (await LoginAsync(s, "maria")).PostAsync("/users",
+            new { name = "Nova", email = $"nova@{s.Slug}.local" });
+
+        await ApiClient.ExpectAsync(response, HttpStatusCode.Created);
+    }
+
+    // Positive control: an inviter who DOES hold estrutura.editar (the seeded admin holds
+    // every permission) can still set a supervisor exactly as before.
+    [Fact]
+    public async Task Inviter_with_estrutura_editar_can_set_a_supervisor()
+    {
+        var s = await api.SeedAsync();
+
+        var response = await (await LoginAsync(s, "admin")).PostAsync("/users",
+            new { name = "Nova", email = $"nova2@{s.Slug}.local", supervisorId = s.Joao });
+
+        await ApiClient.ExpectAsync(response, HttpStatusCode.Created);
     }
 
     [Fact]

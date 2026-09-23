@@ -100,6 +100,87 @@ public class RoleTests(ApiFixture api)
         Assert.Equal("role.last_admin", await ApiClient.CodeAsync(response));
     }
 
+    // A role-manager holding ONLY usuarios.gerenciar_perfis (no other permission) must not be
+    // able to strip a role of a permission they don't personally hold, by editing it down or
+    // deleting it outright -- that would let them permanently remove standing (e.g.
+    // fechamento.confirmar) from the tenant with no recovery path. Mirrors the existing
+    // addition-side check ("Cannot_create_a_role_broader_than_own_permissions") but for
+    // removal.
+    private async Task<(Guid Gestor, Guid Financeiro)> SeedGestorAndFinanceiroAsync(SeededTenant s)
+    {
+        var gestor = Guid.NewGuid();
+        var financeiro = Guid.NewGuid();
+        await api.SqlAsync(
+            """
+            insert into roles (id, tenant_id, name) values (@gestor, @tenant, 'Gestor de perfis');
+            insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenant, @gestor, 'usuarios.gerenciar_perfis', null);
+            insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @maria, @gestor);
+            insert into roles (id, tenant_id, name) values (@financeiro, @tenant, 'Financeiro');
+            insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenant, @financeiro, 'fechamento.confirmar', null);
+            """,
+            new { gestor, financeiro, tenant = s.TenantId, maria = s.Maria });
+        return (gestor, financeiro);
+    }
+
+    [Fact]
+    public async Task Role_manager_cannot_strip_via_update_a_permission_they_do_not_hold()
+    {
+        var s = await api.SeedAsync();
+        var (_, financeiro) = await SeedGestorAndFinanceiroAsync(s);
+        var maria = await LoginAsync(s, "maria");
+        var role = (await maria.GetJsonAsync<List<RoleDto>>("/roles")).Single(r => r.Id == financeiro);
+
+        var response = await maria.PutAsync($"/roles/{financeiro}", new { name = role.Name, permissions = Array.Empty<object>() });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("role.grant_exceeds_own", await ApiClient.CodeAsync(response));
+        var unchanged = (await (await LoginAsync(s, "admin")).GetJsonAsync<List<RoleDto>>("/roles")).Single(r => r.Id == financeiro);
+        Assert.Contains(unchanged.Permissions, p => p.Key == "fechamento.confirmar");
+    }
+
+    [Fact]
+    public async Task Role_manager_who_holds_the_permission_can_still_remove_it_via_update()
+    {
+        var s = await api.SeedAsync();
+        var (gestor, financeiro) = await SeedGestorAndFinanceiroAsync(s);
+        await api.SqlAsync(
+            "insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenant, @gestor, 'fechamento.confirmar', null)",
+            new { tenant = s.TenantId, gestor });
+        var maria = await LoginAsync(s, "maria");
+        var role = (await maria.GetJsonAsync<List<RoleDto>>("/roles")).Single(r => r.Id == financeiro);
+
+        var response = await maria.PutAsync($"/roles/{financeiro}", new { name = role.Name, permissions = Array.Empty<object>() });
+
+        await ApiClient.ExpectAsync(response, HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Role_manager_cannot_delete_a_role_granting_a_permission_they_do_not_hold()
+    {
+        var s = await api.SeedAsync();
+        var (_, financeiro) = await SeedGestorAndFinanceiroAsync(s);
+
+        var response = await (await LoginAsync(s, "maria")).DeleteAsync($"/roles/{financeiro}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("role.grant_exceeds_own", await ApiClient.CodeAsync(response));
+        Assert.Equal(1, await api.SqlScalarAsync<int>("select count(*)::int from roles where id = @id", new { id = financeiro }));
+    }
+
+    [Fact]
+    public async Task Role_manager_who_holds_the_permission_can_still_delete_the_role()
+    {
+        var s = await api.SeedAsync();
+        var (gestor, financeiro) = await SeedGestorAndFinanceiroAsync(s);
+        await api.SqlAsync(
+            "insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenant, @gestor, 'fechamento.confirmar', null)",
+            new { tenant = s.TenantId, gestor });
+
+        var response = await (await LoginAsync(s, "maria")).DeleteAsync($"/roles/{financeiro}");
+
+        await ApiClient.ExpectAsync(response, HttpStatusCode.NoContent);
+    }
+
     [Fact]
     public async Task Cannot_create_a_role_broader_than_own_permissions()
     {

@@ -9,7 +9,7 @@ namespace Recorrencia.Api.Commissions;
 public static class CommissionPlanEndpoints
 {
     public sealed record RuleInput(string? Type, decimal Rate, int? Level, Guid? GroupId);
-    public sealed record PlanRequest(string? Name, DateOnly EffectiveFrom, RuleInput[]? Rules);
+    public sealed record PlanRequest(string? Name, DateOnly? EffectiveFrom, RuleInput[]? Rules);
     public sealed record GroupRequest(string? Name);
     public sealed record MembersRequest(Guid[]? UserIds);
     public sealed record RuleResponse(Guid Id, string Type, decimal Rate, int? Level, Guid? GroupId);
@@ -77,7 +77,9 @@ public static class CommissionPlanEndpoints
         var name = (body.Name ?? "").Trim();
         if (name.Length == 0)
             throw new ApiProblem(StatusCodes.Status400BadRequest, "plan.name_required");
-        if (body.EffectiveFrom.Day != 1)
+        // EffectiveFrom is nullable precisely so an omitted field is rejected here, rather
+        // than silently defaulting to DateOnly's default (0001-01-01).
+        if (body.EffectiveFrom is not { Day: 1 } effectiveFrom)
             throw new ApiProblem(StatusCodes.Status400BadRequest, "plan.invalid_effective_from");
         var rules = body.Rules ?? [];
         if (rules.Length == 0)
@@ -90,7 +92,7 @@ public static class CommissionPlanEndpoints
         {
             await tx.ExecuteAsync(
                 "insert into commission_plans (id, tenant_id, name, effective_from) values (@id, @tenant, @name, @effectiveFrom)",
-                new { id, tenant, name, effectiveFrom = body.EffectiveFrom });
+                new { id, tenant, name, effectiveFrom });
             try
             {
                 foreach (var rule in rules)

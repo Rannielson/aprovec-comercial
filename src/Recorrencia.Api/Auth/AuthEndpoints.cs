@@ -30,9 +30,13 @@ public static class AuthEndpoints
         var tenant = request.RequireTenant();
         var email = NormalizeEmail(body.Email);
         var password = body.Password ?? "";
-        var ipKey = $"ip:{request.ClientIp}";
+        // A missing/unparseable client IP must NOT collapse into a single shared "ip:"
+        // bucket -- that would let failed attempts from one tenant/client throttle a
+        // completely unrelated login elsewhere. Only include the IP key when there
+        // actually is one; the email-based key alone still throttles this attempt.
+        var ipKey = request.ClientIp is { } ip ? $"ip:{ip}" : null;
         var emailKey = $"email:{tenant}:{email}";
-        var keys = new[] { ipKey, emailKey };
+        var keys = ipKey is not null ? new[] { ipKey, emailKey } : new[] { emailKey };
 
         // Atomic reserve-then-complete: TryReserve checks AND reserves a
         // slot on every key in one step, so no number of concurrent requests

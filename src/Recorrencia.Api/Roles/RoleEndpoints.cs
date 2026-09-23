@@ -126,6 +126,19 @@ public static class RoleEndpoints
 
             // Remoções por último: sem gerenciar_perfis no meio da transação, o RLS bloquearia as escritas seguintes.
             var current = before.Where(r => r.PermissionKey is not null).ToDictionary(r => r.PermissionKey!, r => r.Scope);
+
+            // A permission is being revoked when it's dropped entirely or downgraded to a
+            // narrower scope. The actor must personally hold every one of those (permission,
+            // scope) combinations -- the same ceiling already enforced for additions in
+            // ValidateAsync -- otherwise they could strip the role of standing they never had
+            // themselves (e.g. deleting fechamento.confirmar from Administrador while holding
+            // only usuarios.gerenciar_perfis).
+            var newScopeByKey = grants.ToDictionary(g => g.Key, g => g.Scope);
+            var revoked = current
+                .Where(kv => !newScopeByKey.TryGetValue(kv.Key, out var newScope) || Scopes.Rank(newScope) < Scopes.Rank(kv.Value))
+                .Select(kv => new RoleGuards.GrantRow { PermissionKey = kv.Key, Scope = kv.Value });
+            RoleGuards.EnsureCanGrant(mine, revoked);
+
             await InsertPermissionsAsync(tx, tenant, id, grants.Where(g => !current.ContainsKey(g.Key)).ToList());
             foreach (var changed in grants.Where(g => current.TryGetValue(g.Key, out var scope) && scope != g.Scope))
             {
@@ -146,14 +159,23 @@ public static class RoleEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> DeleteAsync(Guid id, RequestContext request, Database db, CancellationToken ct)
+    private static async Task<IResult> DeleteAsync(Guid id, RequestContext request, Database db, CurrentPermissions permissions, CancellationToken ct)
     {
         var tenant = request.RequireTenant();
         var actor = request.RequireUser();
+        var mine = await permissions.GetAsync(ct);
         await db.InTenantAsync(tenant, actor, async tx =>
         {
             var name = await tx.QuerySingleOrDefaultAsync<string>("select name from roles where id = @id", new { id })
                 ?? throw new ApiProblem(StatusCodes.Status404NotFound, "role.not_found");
+
+            // Deleting the role removes ALL the permissions it grants at once, so the actor
+            // must personally hold every one of them -- same ceiling as removing them one by
+            // one via UpdateAsync would require.
+            var grants = await tx.QueryAsync<RoleGuards.GrantRow>(
+                "select permission_key, scope from role_permissions where role_id = @id", new { id });
+            RoleGuards.EnsureCanGrant(mine, grants);
+
             await tx.ExecuteAsync("delete from roles where id = @id", new { id });
             await RoleGuards.EnsureProfileManagerRemainsAsync(tx);
             await WriteAsync(tx, tenant, actor, "roles.delete", "roles", id, new { name }, null);

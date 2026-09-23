@@ -39,8 +39,11 @@ public static partial class PlatformEndpoints
 
     private static readonly string[] ReservedSlugs = ["admin", "www", "api"];
 
+    // Internal (not private): TenantResolver reuses this exact shape check so that a
+    // subdomain probe that could never be a valid slug is rejected before it costs a DB
+    // round-trip or an unbounded cache entry.
     [GeneratedRegex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")]
-    private static partial Regex SlugPattern();
+    internal static partial Regex SlugPattern();
 
     public static void MapPlatformEndpoints(this IEndpointRouteBuilder app)
     {
@@ -64,9 +67,12 @@ public static partial class PlatformEndpoints
 
         var email = AuthEndpoints.NormalizeEmail(body.Email);
         var password = body.Password ?? "";
-        var ipKey = $"ip:{request.ClientIp}";
+        // Same missing-IP handling as AuthEndpoints.LoginAsync: never let a null/unparseable
+        // ClientIp collapse every such request (including admin/platform login) into one
+        // shared bucket that a single tenant's failures could exhaust for everyone else.
+        var ipKey = request.ClientIp is { } ip ? $"ip:{ip}" : null;
         var emailKey = $"platform-email:{email}";
-        var keys = new[] { ipKey, emailKey };
+        var keys = ipKey is not null ? new[] { ipKey, emailKey } : new[] { emailKey };
 
         // Same atomic reserve-then-complete throttle pattern as the tenant
         // login endpoint (Task 4/AuthEndpoints.LoginAsync).
@@ -120,7 +126,7 @@ public static partial class PlatformEndpoints
         if (name.Length == 0 || adminName.Length == 0)
             throw new ApiProblem(StatusCodes.Status400BadRequest, "tenant.invalid_request");
         var adminEmail = AuthEndpoints.NormalizeEmail(body.AdminEmail);
-        if (!MailAddress.TryCreate(adminEmail, out _))
+        if (!MailAddress.TryCreate(adminEmail, out var parsedAdminEmail) || parsedAdminEmail.Address != adminEmail)
             throw new ApiProblem(StatusCodes.Status400BadRequest, "users.invalid_email");
         if (body.PlanTemplate is not null && body.PlanEffectiveFrom is not { Day: 1 })
             throw new ApiProblem(StatusCodes.Status400BadRequest, "plan.invalid_effective_from");

@@ -63,12 +63,17 @@ public static class UserEndpoints
         var address = (body.Email ?? "").Trim().ToLowerInvariant();
         if (name.Length == 0)
             throw new ApiProblem(StatusCodes.Status400BadRequest, "users.name_required");
-        if (!MailAddress.TryCreate(address, out _))
+        if (!MailAddress.TryCreate(address, out var parsedAddress) || parsedAddress.Address != address)
             throw new ApiProblem(StatusCodes.Status400BadRequest, "users.invalid_email");
 
         var roleIds = body.RoleIds ?? [];
         var mine = await permissions.GetAsync(ct);
         if (roleIds.Length > 0 && !mine.Has("usuarios.gerenciar_perfis"))
+            throw new ApiProblem(StatusCodes.Status403Forbidden, "auth.forbidden");
+        // Hierarchy position drives upline commission, so placing a new hire under a given
+        // supervisor is as sensitive as granting a role -- gated the same way, behind
+        // estrutura.editar, rather than left open to anyone who can merely invite.
+        if (body.SupervisorId is not null && !mine.Has("estrutura.editar"))
             throw new ApiProblem(StatusCodes.Status403Forbidden, "auth.forbidden");
 
         var id = Guid.CreateVersion7();
@@ -168,6 +173,12 @@ public static class UserEndpoints
             var current = (await tx.QueryAsync<Guid>("select role_id from user_roles where user_id = @id", new { id })).ToArray();
             var added = desired.Except(current).ToArray();
             await RoleGuards.EnsureCanGrantRolesAsync(tx, mine, added);
+
+            // Removing a role the actor doesn't personally have full standing over must be
+            // blocked the same way granting it would be -- otherwise a role-manager could
+            // strip a user of permissions far beyond their own reach.
+            var removedRoleIds = current.Except(desired).ToArray();
+            await RoleGuards.EnsureCanGrantRolePermissionsAsync(tx, mine, removedRoleIds);
 
             foreach (var roleId in added)
                 await tx.ExecuteAsync("insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @id, @roleId)", new { tenant, id, roleId });

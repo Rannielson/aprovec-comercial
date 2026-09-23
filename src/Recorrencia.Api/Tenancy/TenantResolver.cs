@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Caching.Memory;
 using Recorrencia.Api.Infrastructure;
+using Recorrencia.Api.Platform;
 
 namespace Recorrencia.Api.Tenancy;
 
@@ -11,6 +12,12 @@ public sealed class TenantResolver(Database db, IMemoryCache cache)
 
     public async Task<TenantInfo?> ResolveActiveAsync(string slug, CancellationToken ct)
     {
+        // Reject an obviously-invalid subdomain shape (uppercase, underscores, empty, etc.)
+        // before it costs a DB round-trip or an unbounded cache entry -- any distinct string
+        // that reaches this API otherwise gets cached (even as a negative result) forever.
+        if (!PlatformEndpoints.SlugPattern().IsMatch(slug))
+            return null;
+
         var key = CacheKey(slug);
         if (cache.TryGetValue(key, out TenantInfo? cached))
             return cached;

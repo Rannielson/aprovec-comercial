@@ -76,6 +76,30 @@ public class AuthTests(ApiFixture api)
         Assert.Equal("auth.too_many_attempts", await ApiClient.CodeAsync(response));
     }
 
+    // A missing/unparseable X-Client-Ip must not collapse into one shared "ip:" throttle
+    // bucket -- otherwise failed attempts against one tenant (here simulated by an
+    // unparseable IP, since ApiClient always sends the header but HostContextMiddleware nulls
+    // out ClientIp when it can't be parsed as an address) would lock out a completely
+    // unrelated tenant's legitimate login.
+    [Fact]
+    public async Task Missing_client_ip_does_not_share_a_throttle_bucket_across_tenants()
+    {
+        var a = await api.SeedAsync();
+        var b = await api.SeedAsync();
+        var attacker = api.Client(a.Slug, ip: "not-an-ip");
+        for (var i = 0; i < 5; i++)
+            await attacker.PostAsync("/auth/login", new { email = $"joao@{a.Slug}.local", password = "senha-errada-123" });
+
+        // Sanity check: tenant A's own throttle really did engage.
+        var blockedOnA = await attacker.PostAsync("/auth/login", new { email = $"joao@{a.Slug}.local", password = ApiFixture.Password });
+        Assert.Equal(HttpStatusCode.TooManyRequests, blockedOnA.StatusCode);
+
+        var victim = api.Client(b.Slug, ip: "not-an-ip");
+        var response = await victim.PostAsync("/auth/login", new { email = $"joao@{b.Slug}.local", password = ApiFixture.Password });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     [Fact]
     public async Task Session_cannot_be_used_on_another_tenant()
     {

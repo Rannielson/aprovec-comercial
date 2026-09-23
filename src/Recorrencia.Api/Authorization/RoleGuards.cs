@@ -13,8 +13,36 @@ public static class RoleGuards
         if (found != distinct.Length)
             throw new ApiProblem(StatusCodes.Status400BadRequest, "roles.not_found");
 
+        await EnsureCanGrantRolePermissionsAsync(tx, mine, distinct);
+    }
+
+    /// <summary>
+    /// Same grant-ceiling check as <see cref="EnsureCanGrantRolesAsync"/>, but for roles
+    /// already known to exist (e.g. a role currently assigned to a user that is about to be
+    /// removed). Used both for additions and, symmetrically, for removals: whether a role's
+    /// permissions are being granted or taken away, the actor must personally hold every one
+    /// of them at an equal-or-greater scope.
+    /// </summary>
+    public static async Task EnsureCanGrantRolePermissionsAsync(Tx tx, PermissionSet mine, IReadOnlyCollection<Guid> roleIds)
+    {
+        if (roleIds.Count == 0)
+            return;
+        var distinct = roleIds.Distinct().ToArray();
         var grants = await tx.QueryAsync<GrantRow>(
             "select permission_key, scope from role_permissions where role_id = any(@distinct)", new { distinct });
+        EnsureCanGrant(mine, grants);
+    }
+
+    /// <summary>
+    /// The core grant-ceiling check, factored out so it can be applied symmetrically to both
+    /// additions and removals: an actor may only add or remove a (permission, scope) grant
+    /// they personally hold at an equal-or-greater scope. Without this applied to removals
+    /// too, a role-manager holding nothing but `usuarios.gerenciar_perfis` could strip a role
+    /// or user of permissions far beyond their own reach (e.g. deleting the Administrador
+    /// role entirely), which is exactly as dangerous as granting those permissions would be.
+    /// </summary>
+    public static void EnsureCanGrant(PermissionSet mine, IEnumerable<GrantRow> grants)
+    {
         if (grants.Any(g => !mine.CanGrant(g.PermissionKey, g.Scope)))
             throw new ApiProblem(StatusCodes.Status403Forbidden, "role.grant_exceeds_own");
     }

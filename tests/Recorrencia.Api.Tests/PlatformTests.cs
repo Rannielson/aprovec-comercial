@@ -91,6 +91,16 @@ public class PlatformTests(ApiFixture api)
         Assert.Equal(code, await ApiClient.CodeAsync(response));
     }
 
+    // Same display-name-wrapped-email fix as UserEndpoints.InviteAsync.
+    [Fact]
+    public async Task Admin_email_with_a_display_name_is_rejected()
+    {
+        var response = await (await PlatformClientAsync()).PostAsync("/platform/tenants",
+            new { slug = Seed.UniqueSlug(), name = "X", adminName = "X", adminEmail = "Alguém <x@x.local>" });
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("users.invalid_email", await ApiClient.CodeAsync(response));
+    }
+
     [Fact]
     public async Task Duplicate_slug_is_rejected()
     {

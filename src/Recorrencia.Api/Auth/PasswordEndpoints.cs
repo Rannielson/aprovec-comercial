@@ -34,13 +34,18 @@ public static class PasswordEndpoints
         LoginThrottle throttle, IEmailSender email, LinkBuilder links, IOptions<AuthOptions> options, CancellationToken ct)
     {
         var tenant = request.RequireTenant();
-        var ipKey = $"reset-ip:{request.ClientIp}";
+        // A missing/unparseable client IP must not collapse every such request into one
+        // shared "reset-ip:" bucket -- there is no email-based key on this endpoint to fall
+        // back on, so simply skip reserving/throttling on the IP dimension for this request
+        // rather than letting it share a bucket with unrelated tenants/clients.
+        var ipKey = request.ClientIp is { } ip ? $"reset-ip:{ip}" : null;
+        var keys = ipKey is not null ? new[] { ipKey } : Array.Empty<string>();
 
         // Same reserve-then-complete pattern as login (Task 4): every
         // request against this IP consumes a slot up front, regardless of
         // whether the e-mail turns out to exist, so the throttle itself
         // never becomes a side channel for account enumeration.
-        if (!throttle.TryReserve(ipKey))
+        if (!throttle.TryReserve(keys))
             throw new ApiProblem(StatusCodes.Status429TooManyRequests, "auth.too_many_attempts");
 
         try
@@ -71,7 +76,7 @@ public static class PasswordEndpoints
             // endpoint has no real success/failure distinction to make
             // (unlike login), and every call — hit or miss on the e-mail —
             // should count equally against the per-IP budget.
-            throttle.Complete([ipKey], true);
+            throttle.Complete(keys, true);
         }
 
         return Results.Accepted();

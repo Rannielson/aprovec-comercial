@@ -79,6 +79,10 @@ public class CommissionPlanTests(ApiFixture api)
     public static TheoryData<object, string> InvalidPlans => new()
     {
         { new { name = "X", effectiveFrom = "2026-10-15", rules = new[] { new { type = "own", rate = 0.05m } } }, "plan.invalid_effective_from" },
+        // A JSON body that omits effectiveFrom entirely must be rejected rather than silently
+        // defaulting to DateOnly's default (0001-01-01) -- see PlanRequest.EffectiveFrom being
+        // nullable specifically to make this representable and checkable.
+        { new { name = "X", rules = new[] { new { type = "own", rate = 0.05m } } }, "plan.invalid_effective_from" },
         { new { name = "X", effectiveFrom = "2026-10-01", rules = Array.Empty<object>() }, "plan.empty" },
         { new { name = "X", effectiveFrom = "2026-10-01", rules = new[] { new { type = "upline", rate = 0.02m } } }, "plan.invalid_rule" },
         { new { name = "X", effectiveFrom = "2026-10-01", rules = new[] { new { type = "own", rate = 0m } } }, "plan.invalid_rule" },

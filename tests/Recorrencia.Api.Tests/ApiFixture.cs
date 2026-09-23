@@ -53,7 +53,7 @@ public sealed class ApiFixture : IAsyncLifetime
         await Db.DisposeAsync();
     }
 
-    public ApiClient Client(string host) => new(Factory.CreateClient(), host);
+    public ApiClient Client(string host, string? ip = null) => new(Factory.CreateClient(), host, ip);
 
     public T Service<T>() where T : notnull => Factory.Services.GetRequiredService<T>();
 

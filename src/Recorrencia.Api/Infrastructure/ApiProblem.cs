@@ -28,6 +28,7 @@ public sealed class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorH
         ["role.scope_not_allowed"] = StatusCodes.Status400BadRequest,
         ["commission.invalid_competencia"] = StatusCodes.Status400BadRequest,
         ["auth.invalid_user"] = StatusCodes.Status401Unauthorized,
+        ["auth.forbidden"] = StatusCodes.Status403Forbidden,
     };
 
     public async Task InvokeAsync(HttpContext context)

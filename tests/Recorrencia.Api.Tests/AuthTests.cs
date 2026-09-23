@@ -138,6 +138,21 @@ public class PermissionSetTests
         Assert.Equal(expected, Set.CanGrant(key, scope));
     }
 
+    // Scopes.Rank returns -1 both for "held with no scope" and for "not a
+    // real scope at all", so a naive rank comparison treats garbage scope
+    // strings as equivalent to an unscoped grant and wrongly allows them.
+    // CanGrant must reject a scope string that isn't own/direct/subtree/
+    // tenant/null outright, before any rank comparison, regardless of
+    // whether the permission it's checked against is held scoped or
+    // unscoped.
+    [Theory]
+    [InlineData("carteira.visualizar", "bogus")]
+    [InlineData("usuarios.convidar", "bogus")]
+    public void Rejects_scope_strings_that_are_not_real_scopes(string key, string? scope)
+    {
+        Assert.False(Set.CanGrant(key, scope));
+    }
+
     [Fact]
     public void Exposes_grants_in_key_order()
     {

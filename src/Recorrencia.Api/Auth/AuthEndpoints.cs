@@ -32,32 +32,48 @@ public static class AuthEndpoints
         var password = body.Password ?? "";
         var ipKey = $"ip:{request.ClientIp}";
         var emailKey = $"email:{tenant}:{email}";
-        if (throttle.IsBlocked(ipKey, emailKey))
+        var keys = new[] { ipKey, emailKey };
+
+        // Atomic reserve-then-complete: TryReserve checks AND reserves a
+        // slot on every key in one step, so no number of concurrent requests
+        // can all pass the check before any of them is accounted for. If the
+        // limit is already reached, nothing is reserved and we reject
+        // immediately, same as before.
+        if (!throttle.TryReserve(keys))
             throw new ApiProblem(StatusCodes.Status429TooManyRequests, "auth.too_many_attempts");
 
-        var login = await db.AnonymousAsync(tx => tx.QuerySingleOrDefaultAsync<LoginRow>(
-            "select user_id, password_hash, status from app.find_login(@tenant, @email)", new { tenant, email }), ct);
-
-        var valid = login is { Status: "ativo", PasswordHash: not null }
-            ? hasher.Verify(password, login.PasswordHash)
-            : hasher.VerifyAgainstDummy(password);
-        if (!valid)
+        var failed = true;
+        try
         {
-            throttle.RecordFailure(ipKey, emailKey);
-            throw new ApiProblem(StatusCodes.Status401Unauthorized, "auth.invalid_credentials");
+            var login = await db.AnonymousAsync(tx => tx.QuerySingleOrDefaultAsync<LoginRow>(
+                "select user_id, password_hash, status from app.find_login(@tenant, @email)", new { tenant, email }), ct);
+
+            var valid = login is { Status: "ativo", PasswordHash: not null }
+                ? hasher.Verify(password, login.PasswordHash)
+                : hasher.VerifyAgainstDummy(password);
+            if (!valid)
+                throw new ApiProblem(StatusCodes.Status401Unauthorized, "auth.invalid_credentials");
+
+            failed = false;
+            var session = await Sessions.CreateForUserAsync(db, request, tenant, login!.UserId, options.Value, time, ct);
+
+            if (hasher.NeedsRehash(login.PasswordHash!))
+            {
+                var newHash = hasher.Hash(password);
+                await db.InTenantAsync(tenant, login.UserId,
+                    tx => tx.ExecuteAsync("select app.rehash_own_password(@newHash)", new { newHash }), ct);
+            }
+
+            return Results.Ok(session);
         }
-
-        throttle.Reset(emailKey);
-        var session = await Sessions.CreateForUserAsync(db, request, tenant, login!.UserId, options.Value, time, ct);
-
-        if (hasher.NeedsRehash(login.PasswordHash!))
+        finally
         {
-            var newHash = hasher.Hash(password);
-            await db.InTenantAsync(tenant, login.UserId,
-                tx => tx.ExecuteAsync("select app.rehash_own_password(@newHash)", new { newHash }), ct);
+            // Always releases the reservation made above, on every exit path
+            // (success, invalid credentials, or an unexpected exception).
+            throttle.Complete(keys, failed);
+            if (!failed)
+                throttle.Reset(emailKey);
         }
-
-        return Results.Ok(session);
     }
 
     private static async Task<IResult> LogoutAsync(RequestContext request, Database db, CancellationToken ct)

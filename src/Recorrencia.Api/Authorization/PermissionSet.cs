@@ -18,7 +18,9 @@ public sealed class PermissionSet(IReadOnlyDictionary<string, string?> grants)
     public string? ScopeOf(string key) => grants.GetValueOrDefault(key);
 
     public bool CanGrant(string key, string? scope) =>
-        grants.TryGetValue(key, out var own) && Scopes.Rank(own) >= Scopes.Rank(scope);
+        Scopes.IsValid(scope)
+        && grants.TryGetValue(key, out var own)
+        && Scopes.Rank(own) >= Scopes.Rank(scope);
 
     public IReadOnlyList<PermissionGrant> All =>
         grants.OrderBy(g => g.Key, StringComparer.Ordinal).Select(g => new PermissionGrant(g.Key, g.Value)).ToList();

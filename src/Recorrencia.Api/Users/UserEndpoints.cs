@@ -1,0 +1,182 @@
+using System.Net.Mail;
+using Microsoft.Extensions.Options;
+using Npgsql;
+using Recorrencia.Api.Authorization;
+using Recorrencia.Api.Email;
+using Recorrencia.Api.Infrastructure;
+using Recorrencia.Api.Security;
+using Recorrencia.Api.Tenancy;
+using static Recorrencia.Api.Audit.Audit;
+
+namespace Recorrencia.Api.Users;
+
+public static class UserEndpoints
+{
+    public sealed record InviteUserRequest(string? Name, string? Email, Guid? SupervisorId, Guid[]? RoleIds);
+    public sealed record SupervisorRequest(Guid? SupervisorId);
+    public sealed record UserRolesRequest(Guid[]? RoleIds);
+
+    public sealed class UserRow
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Status { get; set; } = "";
+        public Guid? SupervisorId { get; set; }
+        public Guid[] RoleIds { get; set; } = [];
+    }
+
+    public sealed class SupervisorRow
+    {
+        public Guid? SupervisorId { get; set; }
+    }
+
+    public static void MapUserEndpoints(this IEndpointRouteBuilder app)
+    {
+        app.MapGet("/users", ListAsync).RequirePermission("estrutura.visualizar");
+        app.MapPost("/users", InviteAsync).RequirePermission("usuarios.convidar");
+        app.MapPut("/users/{id:guid}/supervisor", ChangeSupervisorAsync).RequirePermission("estrutura.editar");
+        app.MapPost("/users/{id:guid}/deactivate", DeactivateAsync).RequirePermission("usuarios.desligar");
+        app.MapPut("/users/{id:guid}/roles", SetRolesAsync).RequirePermission("usuarios.gerenciar_perfis");
+    }
+
+    private static async Task<IResult> ListAsync(RequestContext request, Database db, CancellationToken ct)
+    {
+        var users = await db.InTenantAsync(request.RequireTenant(), request.RequireUser(), tx => tx.QueryAsync<UserRow>(
+            """
+            select u.id, u.name, u.email, u.status, u.supervisor_id,
+                   coalesce(array_agg(ur.role_id) filter (where ur.role_id is not null), '{}')::uuid[] as role_ids
+              from users u
+              left join user_roles ur on ur.user_id = u.id
+             group by u.id, u.name, u.email, u.status, u.supervisor_id
+             order by u.name
+            """), ct);
+        return Results.Ok(users);
+    }
+
+    private static async Task<IResult> InviteAsync(InviteUserRequest body, RequestContext request, Database db,
+        CurrentPermissions permissions, IEmailSender email, LinkBuilder links, IOptions<AuthOptions> options, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        var name = (body.Name ?? "").Trim();
+        var address = (body.Email ?? "").Trim().ToLowerInvariant();
+        if (name.Length == 0)
+            throw new ApiProblem(StatusCodes.Status400BadRequest, "users.name_required");
+        if (!MailAddress.TryCreate(address, out _))
+            throw new ApiProblem(StatusCodes.Status400BadRequest, "users.invalid_email");
+
+        var roleIds = body.RoleIds ?? [];
+        var mine = await permissions.GetAsync(ct);
+        if (roleIds.Length > 0 && !mine.Has("usuarios.gerenciar_perfis"))
+            throw new ApiProblem(StatusCodes.Status403Forbidden, "auth.forbidden");
+
+        var id = Guid.CreateVersion7();
+        var token = Tokens.New();
+        await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            await RoleGuards.EnsureCanGrantRolesAsync(tx, mine, roleIds);
+            try
+            {
+                await tx.ExecuteAsync(
+                    "insert into users (id, tenant_id, name, email, supervisor_id) values (@id, @tenant, @name, @address, @supervisor)",
+                    new { id, tenant, name, address, supervisor = body.SupervisorId });
+            }
+            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
+            {
+                throw new ApiProblem(StatusCodes.Status409Conflict, "users.email_taken");
+            }
+            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            {
+                throw new ApiProblem(StatusCodes.Status400BadRequest, "users.invalid_supervisor");
+            }
+
+            foreach (var roleId in roleIds.Distinct())
+                await tx.ExecuteAsync("insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @id, @roleId)", new { tenant, id, roleId });
+
+            await tx.ExecuteAsync("select app.create_invite(@id, @hash, 'convite', @ttl)",
+                new { id, hash = Tokens.Hash(token), ttl = options.Value.InviteTtlSeconds });
+            await WriteAsync(tx, tenant, actor, "users.invite", "users", id, null, new { name, email = address, body.SupervisorId, roleIds });
+            return 0;
+        }, ct);
+
+        await email.SendAsync(address, "Convite de acesso",
+            $"""
+            Você foi convidado para acessar a plataforma de {request.TenantName}.
+
+            Defina sua senha em: {links.SetPassword(request.TenantSlug!, token)}
+
+            O link vale por 72 horas.
+            """, ct);
+        return Results.Created($"/users/{id}", new { id });
+    }
+
+    private static async Task<IResult> ChangeSupervisorAsync(Guid id, SupervisorRequest body, RequestContext request, Database db, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            var current = await tx.QuerySingleOrDefaultAsync<SupervisorRow>(
+                "select supervisor_id from users where id = @id for update", new { id })
+                ?? throw new ApiProblem(StatusCodes.Status404NotFound, "users.not_found");
+            try
+            {
+                await tx.ExecuteAsync("update users set supervisor_id = @supervisor where id = @id", new { supervisor = body.SupervisorId, id });
+            }
+            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            {
+                throw new ApiProblem(StatusCodes.Status400BadRequest, "users.invalid_supervisor");
+            }
+            await WriteAsync(tx, tenant, actor, "users.change_supervisor", "users", id,
+                new { current.SupervisorId }, new { body.SupervisorId });
+            return 0;
+        }, ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> DeactivateAsync(Guid id, RequestContext request, Database db, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            var status = await tx.QuerySingleOrDefaultAsync<string>("select status from users where id = @id for update", new { id })
+                ?? throw new ApiProblem(StatusCodes.Status404NotFound, "users.not_found");
+            if (status == "desligado")
+                return 0;
+            await tx.ExecuteAsync("update users set status = 'desligado' where id = @id", new { id });
+            await RoleGuards.EnsureProfileManagerRemainsAsync(tx);
+            await tx.ExecuteAsync("select app.revoke_user_sessions(@id)", new { id });
+            await WriteAsync(tx, tenant, actor, "users.deactivate", "users", id, new { status }, new { status = "desligado" });
+            return 0;
+        }, ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> SetRolesAsync(Guid id, UserRolesRequest body, RequestContext request, Database db,
+        CurrentPermissions permissions, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        var mine = await permissions.GetAsync(ct);
+        var desired = (body.RoleIds ?? []).Distinct().ToArray();
+        await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            _ = await tx.QuerySingleOrDefaultAsync<Guid?>("select id from users where id = @id", new { id })
+                ?? throw new ApiProblem(StatusCodes.Status404NotFound, "users.not_found");
+            var current = (await tx.QueryAsync<Guid>("select role_id from user_roles where user_id = @id", new { id })).ToArray();
+            var added = desired.Except(current).ToArray();
+            await RoleGuards.EnsureCanGrantRolesAsync(tx, mine, added);
+
+            foreach (var roleId in added)
+                await tx.ExecuteAsync("insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @id, @roleId)", new { tenant, id, roleId });
+            await tx.ExecuteAsync("delete from user_roles where user_id = @id and not (role_id = any(@desired))", new { id, desired });
+
+            await RoleGuards.EnsureProfileManagerRemainsAsync(tx);
+            await WriteAsync(tx, tenant, actor, "users.set_roles", "users", id, new { roleIds = current }, new { roleIds = desired });
+            return 0;
+        }, ct);
+        return Results.NoContent();
+    }
+}

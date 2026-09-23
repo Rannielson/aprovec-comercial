@@ -9,6 +9,7 @@ using Recorrencia.Api.Email;
 using Recorrencia.Api.Infrastructure;
 using Recorrencia.Api.Security;
 using Recorrencia.Api.Tenancy;
+using Recorrencia.Api.Users;
 using Recorrencia.Db;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -60,6 +61,7 @@ app.MapTenantEndpoints();
 app.MapAuthEndpoints();
 app.MapMeEndpoints();
 app.MapPasswordEndpoints();
+app.MapUserEndpoints();
 
 app.Run();
 

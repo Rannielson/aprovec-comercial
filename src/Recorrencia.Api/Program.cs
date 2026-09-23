@@ -7,6 +7,7 @@ using Recorrencia.Api.Auth;
 using Recorrencia.Api.Authorization;
 using Recorrencia.Api.Commissions;
 using Recorrencia.Api.Email;
+using Recorrencia.Api.Fechamentos;
 using Recorrencia.Api.Infrastructure;
 using Recorrencia.Api.Roles;
 using Recorrencia.Api.Security;
@@ -67,6 +68,7 @@ app.MapUserEndpoints();
 app.MapRoleEndpoints();
 app.MapCommissionPlanEndpoints();
 app.MapCommissionEndpoints();
+app.MapFechamentoEndpoints();
 
 app.Run();
 

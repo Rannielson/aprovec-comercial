@@ -143,3 +143,5 @@ tr.subtotal td { font-weight: 600; }
   .shell-topbar { height: 49px; padding: 0 20px; }
   .workspace > main { padding: 25px 20px 18px; }
 }
+
+.page-heading { display: grid; gap: 6px; }

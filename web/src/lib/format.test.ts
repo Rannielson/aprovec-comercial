@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { currentCompetencia, formatCompetencia, formatMoney, formatPercent, isCompetencia, ruleLabel } from './format';
+import { currentCompetencia, formatCompetencia, formatMoney, formatPercent, isCompetencia, previousCompetencia, ruleLabel, statusBadgeClass } from './format';
 
 describe('format', () => {
   it('formata dinheiro em reais', () => {
@@ -31,5 +31,18 @@ describe('format', () => {
     expect(ruleLabel({ ruleType: 'own', level: null, groupName: null })).toBe('Carteira própria');
     expect(ruleLabel({ ruleType: 'upline', level: 2, groupName: null })).toBe('Supervisão · 2º nível');
     expect(ruleLabel({ ruleType: 'global', level: null, groupName: 'Coordenação' })).toBe('Coordenação');
+  });
+
+  it('calcula a competência anterior', () => {
+    expect(previousCompetencia('2026-09')).toBe('2026-08');
+    expect(previousCompetencia('2026-01')).toBe('2025-12');
+  });
+
+  it('escolhe a classe de badge pela situação', () => {
+    expect(statusBadgeClass('apuracao')).toBe('badge progress');
+    expect(statusBadgeClass('conferencia')).toBe('badge warning');
+    expect(statusBadgeClass('confirmado')).toBe('badge recebido');
+    expect(statusBadgeClass('provisionado')).toBe('badge neutral');
+    expect(statusBadgeClass('desconhecido')).toBe('badge');
   });
 });

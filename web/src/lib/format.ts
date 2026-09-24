@@ -48,3 +48,24 @@ export function ruleLabel(rule: Pick<RuleTotal, 'ruleType' | 'level' | 'groupNam
       return rule.groupName ?? 'Grupo';
   }
 }
+
+export function previousCompetencia(competencia: string): string {
+  const [year, month] = competencia.split('-').map(Number);
+  const previous = new Date(Date.UTC(year, month - 2, 1));
+  return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+export function statusBadgeClass(status: string): string {
+  switch (status) {
+    case 'apuracao':
+      return 'badge progress';
+    case 'conferencia':
+      return 'badge warning';
+    case 'confirmado':
+      return 'badge recebido';
+    case 'provisionado':
+      return 'badge neutral';
+    default:
+      return 'badge';
+  }
+}

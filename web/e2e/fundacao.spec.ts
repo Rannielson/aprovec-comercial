@@ -119,5 +119,14 @@ test('admin configura a Hinova e vincula um voluntário', async ({ page }) => {
   await page.getByLabel('Usuário APROVEC').selectOption({ label: 'João Silva' });
   await page.getByRole('button', { name: 'Vincular' }).click();
   await expect(page.getByText('Voluntário vinculado.')).toBeVisible();
-  await expect(page.getByRole('row', { name: /João Silva.*Ana Paula Ferreira/ })).toBeVisible();
+  const vinculo = page.getByRole('row', { name: /João Silva.*Ana Paula Ferreira/ });
+  await expect(vinculo).toBeVisible();
+
+  // Desvincula no final para deixar o voluntário seed livre de novo: o teste roda contra
+  // um banco de dev persistente (prepare.mjs só semeia uma vez), então sem isso uma segunda
+  // execução encontraria "Ana Paula Ferreira" duplicada (na busca e em Vínculos atuais) e
+  // falharia por violação do modo estrito — o mesmo motivo pelo qual o teste de "plataforma
+  // cria empresa" usa um slug único por execução.
+  await vinculo.getByRole('button', { name: 'Desvincular' }).click();
+  await expect(vinculo).not.toBeVisible();
 });

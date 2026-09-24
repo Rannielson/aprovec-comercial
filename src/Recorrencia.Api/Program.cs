@@ -11,6 +11,7 @@ using Recorrencia.Api.Commissions;
 using Recorrencia.Api.Email;
 using Recorrencia.Api.Fechamentos;
 using Recorrencia.Api.Infrastructure;
+using Recorrencia.Api.Integracoes;
 using Recorrencia.Api.Platform;
 using Recorrencia.Api.Roles;
 using Recorrencia.Api.Security;
@@ -26,6 +27,14 @@ builder.Services.AddOptions<WebOptions>().BindConfiguration("Web");
 builder.Services.AddOptions<EmailOptions>().BindConfiguration("Email");
 builder.Services.AddOptions<InternalOptions>().BindConfiguration("Internal")
     .Validate(o => o.Key.Length >= 32, "Internal:Key precisa ter pelo menos 32 caracteres.")
+    .ValidateOnStart();
+
+builder.Services.AddOptions<HinovaOptions>().BindConfiguration("Hinova")
+    .Validate(o =>
+    {
+        try { return Convert.FromBase64String(o.EncryptionKey).Length == 32; }
+        catch (FormatException) { return false; }
+    }, "Hinova:EncryptionKey precisa ser uma chave base64 de 32 bytes.")
     .ValidateOnStart();
 
 DapperSetup.Configure();
@@ -49,6 +58,17 @@ builder.Services.Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = true)
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<LoginThrottle>();
+
+builder.Services.AddSingleton<AesGcmCipher>();
+if (builder.Configuration.GetValue<bool>("Hinova:UseFake"))
+{
+    builder.Services.AddSingleton<IHinovaClient, DevFakeHinovaClient>();
+}
+else
+{
+    builder.Services.AddHttpClient<IHinovaClient, HinovaClient>(c =>
+        c.BaseAddress = new Uri("https://api.hinova.com.br/api/sga/v2/"));
+}
 
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<TenantResolver>();
@@ -92,6 +112,7 @@ app.MapCommissionEndpoints();
 app.MapFechamentoEndpoints();
 app.MapCarteiraEndpoints();
 app.MapPlatformEndpoints();
+app.MapHinovaEndpoints();
 
 app.Run();
 

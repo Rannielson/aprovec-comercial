@@ -41,6 +41,8 @@ services:
       Internal__Key: ${INTERNAL_API_KEY:?defina INTERNAL_API_KEY no .env}
       Web__Scheme: ${WEB_SCHEME:-https}
       Web__RootDomain: ${ROOT_DOMAIN:?defina ROOT_DOMAIN no .env}
+      Hinova__EncryptionKey: ${HINOVA_ENCRYPTION_KEY:?defina HINOVA_ENCRYPTION_KEY no .env}
+      Hinova__UseFake: ${HINOVA_USE_FAKE:-true}
     expose:
       - "8080"
     depends_on:

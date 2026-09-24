@@ -1,20 +1,37 @@
-import { NextResponse } from 'next/server';
 import { apiFetch, currentHost } from '@/lib/api';
 import { env } from '@/lib/env';
 import { PLATFORM_SUBDOMAIN } from '@/lib/host';
 import { clearSession } from '@/lib/session';
 
 export async function POST(request: Request) {
+  // Reject cross-site logout POSTs (e.g. an auto-submitting form on another site forcing a
+  // visitor's session to be logged out). Browsers always send Origin on a cross-site POST;
+  // same-origin requests from this app may omit it, so only reject when an Origin is present
+  // and it doesn't match the (validated) host the request claims to be for.
+  const origin = request.headers.get('origin');
+  if (origin) {
+    const host = await currentHost();
+    const expectedHost =
+      host.kind === 'tenant'
+        ? `${host.slug}.${env.ROOT_DOMAIN}`
+        : host.kind === 'platform'
+          ? `${PLATFORM_SUBDOMAIN}.${env.ROOT_DOMAIN}`
+          : null;
+    let originHost: string | null;
+    try {
+      originHost = new URL(origin).host.toLowerCase();
+    } catch {
+      originHost = null;
+    }
+    if (!expectedHost || originHost !== expectedHost.toLowerCase()) {
+      return new Response(null, { status: 400 });
+    }
+  }
+
   await apiFetch('/auth/logout', { method: 'POST' }).catch(() => undefined);
   await clearSession();
-  // request.url reports the server's own bind address, not the tenant subdomain the
-  // browser actually requested (Next.js does not trust the Host header for this by
-  // default). Rebuild the redirect target from currentHost(), which validates the
-  // requested host against ROOT_DOMAIN the same way every other route does, instead
-  // of trusting the raw Host header directly (which would allow an open redirect).
-  const host = await currentHost();
-  const url = new URL('/login', request.url);
-  if (host.kind === 'tenant') url.host = `${host.slug}.${env.ROOT_DOMAIN}`;
-  else if (host.kind === 'platform') url.host = `${PLATFORM_SUBDOMAIN}.${env.ROOT_DOMAIN}`;
-  return NextResponse.redirect(url, 303);
+  // A relative Location is resolved by the browser against whatever host it actually used,
+  // so there's no host-building logic needed here (this also removes the open-redirect
+  // surface entirely, superseding the previous host-reconstruction approach).
+  return new Response(null, { status: 303, headers: { Location: '/login' } });
 }

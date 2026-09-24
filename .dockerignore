@@ -7,3 +7,4 @@ design
 docs
 tests
 tmp
+.env

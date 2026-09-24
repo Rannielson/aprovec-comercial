@@ -124,3 +124,9 @@ dotnet test
 ### Containers
 
 `docker compose up -d --build` sobe banco, migrações, API (sem porta publicada) e web em `127.0.0.1:3000`. Em produção, coloque um proxy reverso com TLS curinga (`*.seu-dominio`) na frente do `web`, defina `ROOT_DOMAIN`, `WEB_SCHEME=https` e `COOKIE_SECURE=true`, e garanta que o proxy sobrescreva `X-Forwarded-For` e `X-Forwarded-Host` (nunca repasse os valores recebidos do cliente sem verificação), já que ambos alimentam a identificação do IP do cliente e do tenant. O envio de e-mail por SMTP ainda não está implementado: até lá, os e-mails aparecem no log da API.
+
+Para criar o primeiro administrador da plataforma num deploy em containers:
+
+```sh
+docker compose run --rm -e PLATFORM_ADMIN_PASSWORD=troque-me api create-platform-admin admin@seu-dominio
+```

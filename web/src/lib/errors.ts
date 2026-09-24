@@ -11,6 +11,7 @@ const messages: Record<string, string> = {
   'tenant.invalid_request': 'Preencha todos os campos.',
   'users.invalid_email': 'Informe um e-mail válido.',
   'plan.invalid_effective_from': 'Escolha o mês de início da vigência.',
+  'internal.error': 'Não foi possível falar com o servidor. Tente novamente em instantes.',
 };
 
 export function messageFor(code: string): string {

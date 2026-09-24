@@ -16,6 +16,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
     content = host.kind === 'platform' ? await PlatformHome() : await TenantHome({ competencia });
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) redirect('/login');
+    if (error instanceof ApiError && error.status === 404) notFound();
     throw error;
   }
   return content;

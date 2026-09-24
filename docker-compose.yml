@@ -46,6 +46,11 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     restart: unless-stopped
 
   web:
@@ -59,7 +64,15 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1, not localhost: this image's wget resolves "localhost" to ::1 first, and
+      # the Next.js server only binds the IPv4 wildcard, so the IPv6 attempt is refused.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     restart: unless-stopped
 
 volumes:

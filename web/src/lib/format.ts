@@ -4,6 +4,7 @@ const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL
 const percent = new Intl.NumberFormat('pt-BR', { style: 'percent', maximumFractionDigits: 2 });
 const monthName = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 const saoPauloMonth = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit' });
+const dateFormatter = new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC' });
 
 export const statusLabels: Record<string, string> = {
   apuracao: 'Em apuração',
@@ -67,5 +68,30 @@ export function statusBadgeClass(status: string): string {
       return 'badge neutral';
     default:
       return 'badge';
+  }
+}
+
+export function formatDate(value: string): string {
+  const [year, month, day] = value.split('-').map(Number);
+  return dateFormatter.format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+export const boletoStatusLabels: Record<string, string> = {
+  recebido: 'Recebido',
+  atraso: 'Em atraso',
+  cancelado: 'Cancelado',
+  a_vencer: 'A vencer',
+};
+
+export function boletoStatusBadgeClass(status: string): string {
+  switch (status) {
+    case 'recebido':
+      return 'badge recebido';
+    case 'atraso':
+      return 'badge warning';
+    case 'cancelado':
+      return 'badge cancelado';
+    default:
+      return 'badge neutral';
   }
 }

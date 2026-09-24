@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { currentCompetencia, formatCompetencia, formatMoney, formatPercent, isCompetencia, previousCompetencia, ruleLabel, statusBadgeClass } from './format';
+import { currentCompetencia, formatCompetencia, formatDate, formatMoney, formatPercent, isCompetencia, previousCompetencia, ruleLabel, statusBadgeClass } from './format';
 
 describe('format', () => {
   it('formata dinheiro em reais', () => {
@@ -44,5 +44,10 @@ describe('format', () => {
     expect(statusBadgeClass('confirmado')).toBe('badge recebido');
     expect(statusBadgeClass('provisionado')).toBe('badge neutral');
     expect(statusBadgeClass('desconhecido')).toBe('badge');
+  });
+
+  it('formata datas no padrão brasileiro', () => {
+    expect(formatDate('2026-09-05')).toBe('05/09/2026');
+    expect(formatDate('2026-01-20')).toBe('20/01/2026');
   });
 });

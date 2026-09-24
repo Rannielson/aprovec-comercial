@@ -1,4 +1,4 @@
-export type IconName = 'grid' | 'wallet' | 'calendar' | 'logout';
+export type IconName = 'grid' | 'wallet' | 'calendar' | 'logout' | 'search' | 'back' | 'chevron' | 'info';
 
 const svgProps = {
   viewBox: '0 0 24 24',
@@ -41,6 +41,32 @@ export function Icon({ name, className }: { name: IconName; className?: string }
       return (
         <svg className={cls} {...svgProps}>
           <path d="M9 3H4v18h5M13 7l5 5-5 5M8 12h13" />
+        </svg>
+      );
+    case 'search':
+      return (
+        <svg className={cls} {...svgProps}>
+          <circle cx={10.5} cy={10.5} r={7} />
+          <path d="m16 16 5 5" />
+        </svg>
+      );
+    case 'back':
+      return (
+        <svg className={cls} {...svgProps}>
+          <path d="m14 5-7 7 7 7" />
+        </svg>
+      );
+    case 'chevron':
+      return (
+        <svg className={cls} {...svgProps}>
+          <path d="m9 5 7 7-7 7" />
+        </svg>
+      );
+    case 'info':
+      return (
+        <svg className={cls} {...svgProps}>
+          <circle cx={12} cy={12} r={9} />
+          <path d="M12 11v6M12 7h.01" />
         </svg>
       );
   }

@@ -16,6 +16,7 @@ public sealed class ApiFixture : IAsyncLifetime
     public PostgresFixture Db { get; } = new();
     public WebApplicationFactory<Program> Factory { get; private set; } = null!;
     public CapturingEmailSender Emails { get; } = new();
+    public FakeHinovaClient Hinova { get; } = new();
 
     // Shared with the whole "api" test collection (tests in it run sequentially, never in
     // parallel). FakeTimeProvider.SetUtcNow refuses to rewind, so treat this clock as
@@ -36,6 +37,7 @@ public sealed class ApiFixture : IAsyncLifetime
             builder.UseSetting("Auth:MaxFailuresPerWindow", "5");
             builder.UseSetting("Web:Scheme", "http");
             builder.UseSetting("Web:RootDomain", "localhost:3000");
+            builder.UseSetting("Hinova:EncryptionKey", Convert.ToBase64String(new byte[32]));
 
             builder.ConfigureServices(services =>
             {
@@ -43,6 +45,8 @@ public sealed class ApiFixture : IAsyncLifetime
                 services.AddSingleton<Recorrencia.Api.Email.IEmailSender>(Emails);
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(Time);
+                services.RemoveAll<Recorrencia.Api.Integracoes.IHinovaClient>();
+                services.AddSingleton<Recorrencia.Api.Integracoes.IHinovaClient>(Hinova);
             });
         });
     }

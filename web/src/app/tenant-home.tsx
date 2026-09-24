@@ -16,9 +16,14 @@ export async function TenantHome({ competencia }: { competencia?: string }) {
   const me = await apiFetch<Me>('/me');
   const month = isCompetencia(competencia) ? competencia : currentCompetencia();
   const canSeeCommissions = me.permissions.some((p) => p.key === 'comissoes.visualizar');
-  const commissions = canSeeCommissions ? await apiFetch<Commissions>(`/commissions/${month}`) : null;
-  const previous = canSeeCommissions ? await apiFetch<Commissions>(`/commissions/${previousCompetencia(month)}`) : null;
+  const [commissions, previous] = await Promise.all([
+    canSeeCommissions ? apiFetch<Commissions>(`/commissions/${month}`) : Promise.resolve(null),
+    canSeeCommissions
+      ? apiFetch<Commissions>(`/commissions/${previousCompetencia(month)}`).catch(() => null)
+      : Promise.resolve(null),
+  ]);
   const own = commissions?.beneficiaries.find((b) => b.userId === me.id) ?? null;
+  const previousOwn = previous?.beneficiaries.find((b) => b.userId === me.id) ?? null;
 
   return (
     <main className="shell">
@@ -37,13 +42,13 @@ export async function TenantHome({ competencia }: { competencia?: string }) {
           <section className="commission-band">
             <div className="commission-total">
               <span className="overline">Comissão apurada · {formatCompetencia(month)}</span>
-              <div className="hero-number">{formatMoney(own ? own.total : commissions.total)}</div>
+              <div className="hero-number">{formatMoney(own?.total ?? 0)}</div>
               <span className="subtle">Sobre pagamentos confirmados</span>
             </div>
             {own?.byRule.map((rule, index) => (
               <div className="commission-part" key={`${rule.ruleType}-${rule.level}-${rule.groupId}-${rule.rate}`}>
                 <div className={index === 0 ? 'rate-badge' : 'rate-badge secondary'}>
-                  {Math.round(rule.rate * 100)}
+                  {new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(rule.rate * 100)}
                   <span>%</span>
                 </div>
                 <div>
@@ -64,11 +69,11 @@ export async function TenantHome({ competencia }: { competencia?: string }) {
             <button type="submit" className="secondary">Ver</button>
           </form>
 
-          {previous && (previous.total > 0 || previous.beneficiaries.length > 0) && (
+          {previous && previousOwn && previousOwn.total > 0 && (
             <section className="closing-card">
               <p className="closing-eyebrow">Fechamento anterior</p>
               <h2>{formatCompetencia(previousCompetencia(month))}</h2>
-              <p className="closing-amount">{formatMoney(previous.total)}</p>
+              <p className="closing-amount">{formatMoney(previousOwn.total)}</p>
               <span className={statusBadgeClass(previous.status)}>{statusLabels[previous.status] ?? previous.status}</span>
             </section>
           )}

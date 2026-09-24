@@ -82,7 +82,7 @@ tr.subtotal td { font-weight: 600; }
 .commission-band .badge { margin-left: auto; }
 
 .closing-card { background: #fff9f8; border: 1px solid #e8d1d1; border-top: 3px solid var(--brand-red-dark); border-radius: 18px 0 18px 0; padding: 22px; display: grid; gap: 6px; }
-.closing-eyebrow { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em; color: #a32a2a; text-transform: uppercase; }
+.closing-eyebrow { margin: 0; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em; color: #a32a2a; text-transform: uppercase; }
 .closing-card h2 { color: #910606; font-size: 1.05rem; }
 .closing-amount { font-family: Inter, Arial, sans-serif; font-size: 1.5rem; font-weight: 650; color: #910606; margin: 4px 0; }
 .closing-card .badge { justify-self: start; }

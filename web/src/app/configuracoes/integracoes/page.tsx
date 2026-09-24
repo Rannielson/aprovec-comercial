@@ -91,11 +91,7 @@ export default async function IntegracoesPage({
                       <td>{v.nome}</td>
                       <td>{v.cpf}</td>
                       <td>
-                        {v.jaVinculado ? (
-                          <span className="badge neutral">Vinculado a {v.vinculadoA}</span>
-                        ) : (
-                          <VincularForm voluntario={v} usuarios={usuarios} />
-                        )}
+                        <VincularForm voluntario={v} usuarios={usuarios} />
                       </td>
                     </tr>
                   ))}

@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { ApiError, apiFetch } from '@/lib/api';
 import { messageFor } from '@/lib/errors';
 import type { FormState } from '@/lib/form-state';
@@ -18,6 +19,7 @@ export async function salvarCredenciaisHinova(_: FormState, formData: FormData):
     if (error instanceof ApiError) return { error: messageFor(error.code) };
     throw error;
   }
+  revalidatePath('/configuracoes/integracoes');
   return { message: 'Credenciais salvas.' };
 }
 
@@ -36,6 +38,7 @@ export async function vincularVoluntario(_: FormState, formData: FormData): Prom
     if (error instanceof ApiError) return { error: messageFor(error.code) };
     throw error;
   }
+  revalidatePath('/configuracoes/integracoes');
   return { message: 'Voluntário vinculado.' };
 }
 
@@ -46,5 +49,6 @@ export async function desvincularVoluntario(_: FormState, formData: FormData): P
     if (error instanceof ApiError) return { error: messageFor(error.code) };
     throw error;
   }
+  revalidatePath('/configuracoes/integracoes');
   return { message: 'Vínculo removido.' };
 }

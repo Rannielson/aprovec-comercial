@@ -22,12 +22,18 @@ type ApiRequest = {
 };
 
 export async function currentHost(): Promise<HostInfo> {
-  return parseHost((await headers()).get('host'), env.ROOT_DOMAIN);
+  const incoming = await headers();
+  // Next.js re-renders the redirect target of a Server Action (e.g. after login) as part of
+  // the action's own response, and in that inner render the raw `host` header reflects the
+  // server's own bind address rather than the browser's request; `x-forwarded-host` still
+  // carries the original value in that case, so prefer it when present.
+  const host = incoming.get('x-forwarded-host') ?? incoming.get('host');
+  return parseHost(host, env.ROOT_DOMAIN);
 }
 
 export async function apiFetch<T = void>(path: string, request: ApiRequest = {}): Promise<T> {
   const incoming = await headers();
-  const host = parseHost(incoming.get('host'), env.ROOT_DOMAIN);
+  const host = await currentHost();
   if (host.kind === 'unknown') throw new ApiError(404, 'tenant.not_found');
 
   const token = request.token === undefined ? (await cookies()).get(SESSION_COOKIE)?.value : (request.token ?? undefined);

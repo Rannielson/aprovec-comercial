@@ -14,17 +14,6 @@ public static class CarteiraEndpoints
 
     private const int PageSize = 8;
 
-    // Word-boundary match rather than a naive substring: with a plain ILIKE '%term%', searching
-    // "Associado J7 1" would also match "Associado J7 10".."Associado J7 19" (any name where "1"
-    // is followed by more digits), because it's a substring, not a whole token. \y is Postgres's
-    // word-boundary regex anchor; the search text is escaped so any regex metacharacters in a
-    // user-typed query are treated literally, not as pattern syntax.
-    private const string SearchCondition = """
-        (@searchFilter::text is null
-          or b.associado_nome ~* ('\y' || regexp_replace(@searchFilter, '([^a-zA-Z0-9 ])', '\\\1', 'g') || '\y')
-          or b.placa ~* ('\y' || regexp_replace(@searchFilter, '([^a-zA-Z0-9 ])', '\\\1', 'g') || '\y'))
-        """;
-
     private const string CommissaoExpression = """
         case when b.status = 'recebido' then
           round(coalesce((
@@ -102,7 +91,7 @@ public static class CarteiraEndpoints
                   from boletos b
                  where b.tenant_id = @tenant and b.participante_id = any(@ownerIds)
                    and (@statusFilter::text is null or b.status = @statusFilter)
-                   and {SearchCondition}
+                   and (@searchFilter::text is null or b.associado_nome ilike '%' || @searchFilter || '%' or b.placa ilike '%' || @searchFilter || '%')
                 """,
                 new { tenant, ownerIds, statusFilter, searchFilter });
 
@@ -114,7 +103,7 @@ public static class CarteiraEndpoints
                   from boletos b
                  where b.tenant_id = @tenant and b.participante_id = any(@ownerIds)
                    and (@statusFilter::text is null or b.status = @statusFilter)
-                   and {SearchCondition}
+                   and (@searchFilter::text is null or b.associado_nome ilike '%' || @searchFilter || '%' or b.placa ilike '%' || @searchFilter || '%')
                  order by coalesce(b.pago_em, b.vencimento) desc, b.id
                  limit @pageSize offset @offset
                 """,

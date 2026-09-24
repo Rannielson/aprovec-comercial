@@ -57,7 +57,7 @@ public class CarteiraTests(ApiFixture api)
     public async Task Own_commission_is_calculated_for_a_received_boleto()
     {
         var s = await api.SeedAsync();
-        var result = await (await LoginAsync(s, "joao")).GetJsonAsync<CarteiraDto>("/carteira?query=Associado J7 1&status=recebido");
+        var result = await (await LoginAsync(s, "joao")).GetJsonAsync<CarteiraDto>("/carteira?query=Associado J7 8&status=recebido");
 
         var item = Assert.Single(result.Items);
         Assert.Equal(200m, item.Valor);

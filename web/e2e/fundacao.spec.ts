@@ -85,3 +85,18 @@ test('plataforma cria empresa e a administradora define a senha pelo convite', a
   // confirm we landed on the new tenant's own subdomain instead.
   await expect(page).toHaveURL(`http://${slug}.localhost:3000/`);
 });
+
+test('vendedor abre a carteira pela sidebar e filtra por situação', async ({ page }) => {
+  await login(page, tenant, 'joao@aprovec.local');
+  await page.getByRole('link', { name: 'Minha carteira' }).click();
+  await expect(page).toHaveURL(`${tenant}/carteira`);
+  await expect(page.getByRole('heading', { name: 'Minha carteira' })).toBeVisible();
+
+  // O rótulo e a contagem são elementos adjacentes sem espaço no texto-fonte (mesma
+  // estrutura do mockup) — o nome acessível concatenado não tem espaço entre eles, então
+  // usamos `hasText` (substring) em vez de `getByRole(... { name })` (nome exato).
+  await page.locator('.filter-tab', { hasText: 'Cancelados' }).click();
+  // A página 1 nunca aparece na URL (o código só inclui `page` quando é diferente de 1).
+  await expect(page).toHaveURL(`${tenant}/carteira?status=cancelado`);
+  await expect(page.getByText('4 boletos no filtro')).toBeVisible();
+});

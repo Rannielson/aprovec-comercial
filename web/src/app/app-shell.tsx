@@ -6,7 +6,7 @@ export type ActivePage = 'overview' | 'wallet' | 'closing';
 
 const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string | null }[] = [
   { id: 'overview', icon: 'grid', label: 'Minha recorrência', href: '/' },
-  { id: 'wallet', icon: 'wallet', label: 'Minha carteira', href: null },
+  { id: 'wallet', icon: 'wallet', label: 'Minha carteira', href: '/carteira' },
   { id: 'closing', icon: 'calendar', label: 'Fechamento', href: null },
 ];
 

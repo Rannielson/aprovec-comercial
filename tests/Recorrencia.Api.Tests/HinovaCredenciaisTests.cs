@@ -58,8 +58,14 @@ public class HinovaCredenciaisTests(ApiFixture api)
         }
     }
 
-    [Fact]
-    public async Task Missing_permission_returns_forbidden_on_both_endpoints()
+    [Theory]
+    [InlineData("GET", "/integracoes/hinova/credenciais")]
+    [InlineData("PUT", "/integracoes/hinova/credenciais")]
+    [InlineData("GET", "/integracoes/hinova/voluntarios")]
+    [InlineData("GET", "/integracoes/hinova/mapeamentos")]
+    [InlineData("POST", "/integracoes/hinova/mapeamentos")]
+    [InlineData("DELETE", "/integracoes/hinova/mapeamentos/00000000-0000-0000-0000-000000000000")]
+    public async Task Missing_permission_returns_forbidden_on_every_endpoint(string method, string path)
     {
         var s = await api.SeedAsync();
         var roleId = Guid.NewGuid();
@@ -74,10 +80,18 @@ public class HinovaCredenciaisTests(ApiFixture api)
         var pedro = api.Client(s.Slug);
         await pedro.LoginAsync($"pedro@{s.Slug}.local", ApiFixture.Password);
 
-        var getResponse = await pedro.GetAsync("/integracoes/hinova/credenciais");
-        Assert.Equal(HttpStatusCode.Forbidden, getResponse.StatusCode);
+        // PUT/POST bind a required JSON body before the permission endpoint filter runs, so an
+        // empty body would fail model binding with 400 before ever reaching the filter — send a
+        // well-formed body so binding succeeds and the permission check is what actually fires.
+        object? body = method switch
+        {
+            "PUT" => new { usuario = "u", senha = "s", tokenSga = "t" },
+            "POST" => new { userId = Guid.NewGuid(), codigoVoluntario = "1", nomeHinova = "Nome", cpfHinova = "00000000000" },
+            _ => null,
+        };
 
-        var putResponse = await pedro.PutAsync("/integracoes/hinova/credenciais", new { usuario = "u", senha = "s", tokenSga = "t" });
-        Assert.Equal(HttpStatusCode.Forbidden, putResponse.StatusCode);
+        var response = await pedro.SendAsync(new HttpMethod(method), path, body);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 }

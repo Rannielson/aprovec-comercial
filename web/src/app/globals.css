@@ -91,3 +91,55 @@ tr.subtotal td { font-weight: 600; }
   .commission-band { flex-direction: column; align-items: flex-start; }
   .commission-total { border-right: 0; border-bottom: 1px solid #ffffff26; padding-right: 0; padding-bottom: 16px; width: 100%; }
 }
+
+.app-shell { display: flex; min-height: 100vh; }
+.sidebar { width: 224px; flex-shrink: 0; background: var(--brand-red-dark); color: #fff; display: flex; flex-direction: column; padding: 32px 16px 0; position: fixed; inset: 0 auto 0 0; z-index: 20; }
+.brand { padding: 0 11px 34px; }
+.brand img { width: 173px; height: auto; display: block; }
+.brand-product { font-size: 0.55rem; letter-spacing: 0.09em; color: #f2c4c2; margin-top: 17px; white-space: nowrap; text-transform: uppercase; }
+.sidebar nav { display: flex; flex-direction: column; gap: 8px; }
+
+.icon { width: 20px; height: 20px; flex-shrink: 0; vertical-align: middle; }
+
+.nav-item { display: flex; align-items: center; gap: 13px; width: 100%; border: 0; background: none; color: #fff0ee; text-align: left; min-height: 47px; padding: 0 15px; border-radius: 7px; font-size: 0.8rem; font-weight: 500; text-decoration: none; }
+.nav-item:hover { background: #940000; color: #fff; }
+.nav-item.active { background: var(--brand-black); color: #fff; border-radius: 14px 0 14px 0; }
+.nav-item.disabled { color: #f4cdca; cursor: default; opacity: 0.85; }
+.nav-item .icon { width: 19px; height: 19px; }
+.nav-soon { margin-left: auto; background: #fff; color: #9d1111; border-radius: 5px; font-size: 0.6rem; padding: 2px 6px; white-space: nowrap; }
+
+.sidebar-bottom { margin-top: auto; }
+.sidebar-note { padding: 30px 16px 10px; font-size: 0.7rem; line-height: 1.9; color: #f4cdca; }
+.sidebar-note strong { font-weight: 400; color: #fff; }
+.seller { border-top: 1px solid #ffffff36; display: flex; align-items: center; gap: 10px; padding: 20px 10px 10px; }
+.avatar { width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: #ffffff14; border: 1px solid #ffffff40; color: #fff; font-weight: 600; font-size: 0.7rem; flex-shrink: 0; }
+.seller strong { display: block; font-size: 0.7rem; color: #fff; font-weight: 500; }
+.seller-dot { height: 6px; width: 6px; border-radius: 50%; background: #fff; margin-left: auto; }
+
+.seller-logout { padding: 10px 10px 24px; }
+.seller-logout button { all: unset; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.7rem; color: #f4cdca; }
+.seller-logout button:hover { color: #fff; }
+.seller-logout .icon { width: 14px; height: 14px; }
+
+.workspace { margin-left: 224px; min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.shell-topbar { height: 68px; border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 34px; background: var(--surface); flex-shrink: 0; }
+.breadcrumb { display: flex; gap: 12px; font-size: 0.75rem; color: var(--muted); }
+.breadcrumb > span { color: #b7b2b2; }
+.breadcrumb strong { font-weight: 500; color: #333338; }
+.workspace > main { padding: 33px 34px 27px; max-width: 1550px; margin: 0 auto; width: 100%; flex: 1; }
+.app-footer { max-width: 1550px; margin: 0 auto; padding: 12px 34px 24px; font-size: 0.65rem; color: #8b94a4; width: 100%; }
+
+@media (max-width: 760px) {
+  .app-shell { flex-direction: column; }
+  .sidebar { position: relative; inset: auto; width: 100%; padding: 15px 16px 10px; flex-direction: row; align-items: center; flex-wrap: wrap; }
+  .brand { padding: 0; display: flex; align-items: center; gap: 12px; width: 100%; }
+  .sidebar nav { flex-direction: row; width: 100%; margin-top: 12px; gap: 4px; }
+  .nav-item { flex: 1; justify-content: center; min-height: 42px; font-size: 0.7rem; padding: 0 7px; }
+  .nav-soon { display: none; }
+  .sidebar-bottom { display: none; }
+  .seller-logout { width: 100%; text-align: center; padding: 8px 0 4px; }
+  .seller-logout button { justify-content: center; width: 100%; }
+  .workspace { margin-left: 0; }
+  .shell-topbar { height: 49px; padding: 0 20px; }
+  .workspace > main { padding: 25px 20px 18px; }
+}

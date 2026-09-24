@@ -32,3 +32,9 @@ public sealed class EmailOptions
 {
     public string OutboxDir { get; set; } = "";
 }
+
+public sealed class HinovaOptions
+{
+    public string EncryptionKey { get; set; } = "";
+    public bool UseFake { get; set; }
+}

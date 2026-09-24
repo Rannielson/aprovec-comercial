@@ -10,9 +10,9 @@ public class ProvisioningTests(PostgresFixture db)
     {
         var (t, admin) = await _seed.ProvisionAsync();
 
-        Assert.Equal(6, await _seed.ScalarAsync<int>("select count(*)::int from tenant_modules where tenant_id = @t and enabled", new { t }));
+        Assert.Equal(7, await _seed.ScalarAsync<int>("select count(*)::int from tenant_modules where tenant_id = @t and enabled", new { t }));
         Assert.Equal(3, await _seed.ScalarAsync<int>("select count(*)::int from roles where tenant_id = @t", new { t }));
-        Assert.Equal(25, await _seed.ScalarAsync<int>("select count(*)::int from role_permissions where tenant_id = @t", new { t }));
+        Assert.Equal(26, await _seed.ScalarAsync<int>("select count(*)::int from role_permissions where tenant_id = @t", new { t }));
         Assert.Equal("convidado|administrador", await _seed.ScalarAsync<string>(
             """
             select u.status || '|' || r.source_template_key

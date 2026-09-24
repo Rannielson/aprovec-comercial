@@ -27,6 +27,8 @@
 **Files:**
 - Create: `src/Recorrencia.Db/Scripts/0014_hinova_integracao.sql`
 - Modify: `tests/Recorrencia.Db.Tests/RbacTests.cs:29-30`
+- Modify: `tests/Recorrencia.Db.Tests/ProvisioningTests.cs` (`Provisioning_creates_modules_roles_admin_and_plan`)
+- Modify: `tests/Recorrencia.Api.Tests/RoleTests.cs` (`Catalog_lists_modules_and_permissions`)
 - Create: `tests/Recorrencia.Db.Tests/HinovaIntegracaoTests.cs`
 
 **Interfaces:**
@@ -43,6 +45,14 @@ insert into modules (key, name, sort_order) values
 
 insert into permissions (key, module_key, name, scoped) values
   ('integracoes.gerenciar', 'integracoes', 'Gerenciar integrações', false);
+
+-- 0006_rbac_catalog.sql's catch-all (`insert into role_template_permissions select
+-- 'administrador', key, ... from permissions;`) is a one-time backfill that ran against
+-- the 14 permissions that existed when 0006 executed — it does not retroactively cover
+-- permissions inserted by later migrations. Every new unscoped permission needs its own
+-- explicit grant to 'administrador' here.
+insert into role_template_permissions (template_key, permission_key, scope) values
+  ('administrador', 'integracoes.gerenciar', null);
 
 create table hinova_credenciais (
   tenant_id uuid primary key references tenants (id),
@@ -92,9 +102,11 @@ grant select, insert, update on hinova_credenciais to app_user;
 grant select, insert, delete on hinova_voluntario_mapping to app_user;
 ```
 
-- [ ] **Step 2: Update the existing permission-count test**
+- [ ] **Step 2: Update the existing hardcoded-catalog-count tests**
 
-`RbacTests.cs` hardcodes the total number of permissions and how many the `administrador` template receives (both counts move from 14 to 15 because of the new unscoped `integracoes.gerenciar` permission and the existing catch-all that grants every permission to `administrador`). In `tests/Recorrencia.Db.Tests/RbacTests.cs`:
+Adding a permission changes three counts that other tests hardcode. All three must be updated in this task, in the same commit as the migration — a partial update leaves the suite red.
+
+In `tests/Recorrencia.Db.Tests/RbacTests.cs` (replaces the two `14`s on the existing lines 29-30; line 28 is unchanged):
 
 ```csharp
         Assert.Equal(7, rows.Count(r => r.Template == "coordenador"));
@@ -102,12 +114,30 @@ grant select, insert, delete on hinova_voluntario_mapping to app_user;
         Assert.Equal(15, rows.Count(r => r.Template == "administrador"));
 ```
 
-(Replaces the two `14`s on the existing lines 29-30; line 28 is unchanged.)
+In `tests/Recorrencia.Db.Tests/ProvisioningTests.cs` (replaces the existing lines inside `Provisioning_creates_modules_roles_admin_and_plan`): `provision_tenant` enables every row of `modules` into `tenant_modules`, and copies every `role_template_permissions` row into the new tenant's `role_permissions` — so the new module and the new `administrador` grant both flow through here too.
 
-- [ ] **Step 3: Run the DB test suite to confirm the migration applies and the updated count passes**
+```csharp
+        Assert.Equal(7, await _seed.ScalarAsync<int>("select count(*)::int from tenant_modules where tenant_id = @t and enabled", new { t }));
+        Assert.Equal(3, await _seed.ScalarAsync<int>("select count(*)::int from roles where tenant_id = @t", new { t }));
+        Assert.Equal(26, await _seed.ScalarAsync<int>("select count(*)::int from role_permissions where tenant_id = @t", new { t }));
+```
+
+(Only the `6` → `7` and `25` → `26` change; the `roles` count of `3` is unchanged.)
+
+In `tests/Recorrencia.Api.Tests/RoleTests.cs` (replaces the existing two lines inside `Catalog_lists_modules_and_permissions`): the `/permissions` catalog is ordered by `modules.sort_order`, and `integracoes` was inserted with `sort_order = 7` — last.
+
+```csharp
+        Assert.Equal(new[] { "carteira", "comissoes", "fechamento", "estrutura", "regras_comissao", "usuarios", "integracoes" }, catalog.Select(m => m.Key));
+        Assert.Equal(15, catalog.Sum(m => m.Permissions.Count));
+```
+
+- [ ] **Step 3: Run the DB and API test suites to confirm the migration applies and every updated count passes**
 
 Run: `dotnet test tests/Recorrencia.Db.Tests`
-Expected: all tests pass, including the updated `Catalog_and_templates_are_seeded`.
+Expected: all tests pass, including the updated `Catalog_and_templates_are_seeded` and `Provisioning_creates_modules_roles_admin_and_plan`.
+
+Run: `dotnet test tests/Recorrencia.Api.Tests --filter RoleTests`
+Expected: all tests pass, including the updated `Catalog_lists_modules_and_permissions`.
 
 - [ ] **Step 4: Write the new DB tests**
 
@@ -121,10 +151,18 @@ public class HinovaIntegracaoTests(PostgresFixture db)
 {
     private readonly Seed _seed = new(db);
 
+    // provision_tenant leaves the admin as status = 'convidado' (no password set yet) —
+    // app.effective_permissions() only considers users with status = 'ativo', so every
+    // permission check for a freshly-provisioned admin fails until activated. Same fix
+    // RlsScenario.CreateAsync already applies for the same reason.
+    private Task ActivateAsync(Guid userId) =>
+        _seed.ExecAsync("update users set status = 'ativo', password_hash = 'hash-de-teste' where id = @userId", new { userId });
+
     [Fact]
     public async Task Administrador_can_write_and_read_credenciais()
     {
         var (tenant, admin) = await _seed.ProvisionAsync();
+        await ActivateAsync(admin);
 
         await db.AsAppUserAsync(tenant, admin, (c, tx) => c.ExecuteAsync(
             """
@@ -159,6 +197,7 @@ public class HinovaIntegracaoTests(PostgresFixture db)
     public async Task User_without_the_permission_sees_no_rows_on_select()
     {
         var (tenant, admin) = await _seed.ProvisionAsync();
+        await ActivateAsync(admin);
         await db.AsAppUserAsync(tenant, admin, (c, tx) => c.ExecuteAsync(
             """
             insert into hinova_credenciais (tenant_id, usuario_enc, senha_enc, token_sga_enc, updated_by)
@@ -179,6 +218,8 @@ public class HinovaIntegracaoTests(PostgresFixture db)
     {
         var (tenantA, adminA) = await _seed.ProvisionAsync();
         var (tenantB, adminB) = await _seed.ProvisionAsync();
+        await ActivateAsync(adminA);
+        await ActivateAsync(adminB);
         await db.AsAppUserAsync(tenantB, adminB, (c, tx) => c.ExecuteAsync(
             """
             insert into hinova_credenciais (tenant_id, usuario_enc, senha_enc, token_sga_enc, updated_by)
@@ -195,6 +236,7 @@ public class HinovaIntegracaoTests(PostgresFixture db)
     public async Task A_user_cannot_be_mapped_to_two_voluntarios()
     {
         var (tenant, admin) = await _seed.ProvisionAsync();
+        await ActivateAsync(admin);
         var vendedor = await _seed.UserAsync(tenant, "Vendedor");
 
         await db.AsAppUserAsync(tenant, admin, (c, tx) => c.ExecuteAsync(
@@ -217,6 +259,7 @@ public class HinovaIntegracaoTests(PostgresFixture db)
     public async Task A_codigo_voluntario_cannot_be_mapped_to_two_users()
     {
         var (tenant, admin) = await _seed.ProvisionAsync();
+        await ActivateAsync(admin);
         var vendedorA = await _seed.UserAsync(tenant, "Vendedor A");
         var vendedorB = await _seed.UserAsync(tenant, "Vendedor B");
 
@@ -246,7 +289,7 @@ Expected: all 6 tests pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/Recorrencia.Db/Scripts/0014_hinova_integracao.sql tests/Recorrencia.Db.Tests/RbacTests.cs tests/Recorrencia.Db.Tests/HinovaIntegracaoTests.cs
+git add src/Recorrencia.Db/Scripts/0014_hinova_integracao.sql tests/Recorrencia.Db.Tests/RbacTests.cs tests/Recorrencia.Db.Tests/ProvisioningTests.cs tests/Recorrencia.Api.Tests/RoleTests.cs tests/Recorrencia.Db.Tests/HinovaIntegracaoTests.cs
 git commit -m "feat(db): add hinova_credenciais/hinova_voluntario_mapping tables and integracoes.gerenciar permission"
 ```
 

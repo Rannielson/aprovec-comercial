@@ -26,8 +26,8 @@ public class RbacTests(PostgresFixture db)
         };
         Assert.True(expectedConsultor.SetEquals(consultor));
         Assert.Equal(7, rows.Count(r => r.Template == "coordenador"));
-        Assert.Equal(14, await conn.ExecuteScalarAsync<int>("select count(*) from permissions"));
-        Assert.Equal(14, rows.Count(r => r.Template == "administrador"));
+        Assert.Equal(15, await conn.ExecuteScalarAsync<int>("select count(*) from permissions"));
+        Assert.Equal(15, rows.Count(r => r.Template == "administrador"));
         Assert.All(rows.Where(r => r.Template == "administrador" && r.Scope is not null), r => Assert.Equal("tenant", r.Scope));
     }
 

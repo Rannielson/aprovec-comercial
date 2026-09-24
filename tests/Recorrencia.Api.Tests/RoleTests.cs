@@ -23,8 +23,8 @@ public class RoleTests(ApiFixture api)
         var s = await api.SeedAsync();
         var catalog = await (await LoginAsync(s, "admin")).GetJsonAsync<List<CatalogModule>>("/permissions");
 
-        Assert.Equal(new[] { "carteira", "comissoes", "fechamento", "estrutura", "regras_comissao", "usuarios" }, catalog.Select(m => m.Key));
-        Assert.Equal(14, catalog.Sum(m => m.Permissions.Count));
+        Assert.Equal(new[] { "carteira", "comissoes", "fechamento", "estrutura", "regras_comissao", "usuarios", "integracoes" }, catalog.Select(m => m.Key));
+        Assert.Equal(15, catalog.Sum(m => m.Permissions.Count));
 
         var consultor = await (await LoginAsync(s, "joao")).GetAsync("/permissions");
         Assert.Equal(HttpStatusCode.Forbidden, consultor.StatusCode);

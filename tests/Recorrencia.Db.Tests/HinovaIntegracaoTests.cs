@@ -132,4 +132,26 @@ public class HinovaIntegracaoTests(PostgresFixture db)
             new { tenant, vendedorB, admin }, tx)));
         Assert.Equal(PostgresErrorCodes.UniqueViolation, ex.SqlState);
     }
+
+    [Fact]
+    public async Task Backfill_statements_are_idempotent_and_grant_the_permission()
+    {
+        var (tenant, admin) = await _seed.ProvisionAsync();
+        await ActivateAsync(admin);
+
+        // Simulates re-running 0014's backfill against a tenant that already has the row
+        // (provision_tenant already granted it, since this tenant was created after 0014).
+        // The point is proving `on conflict do nothing` doesn't error the second time.
+        await _seed.ExecAsync(
+            """
+            insert into tenant_modules (tenant_id, module_key) select id, 'integracoes' from tenants on conflict do nothing;
+            insert into role_permissions (role_id, tenant_id, permission_key, scope)
+            select r.id, r.tenant_id, 'integracoes.gerenciar', null from roles r where r.source_template_key = 'administrador'
+            on conflict do nothing;
+            """);
+
+        var has = await db.AsAppUserAsync(tenant, admin, (c, tx) =>
+            c.ExecuteScalarAsync<bool>("select app.has_permission('integracoes.gerenciar')", null, tx));
+        Assert.True(has);
+    }
 }

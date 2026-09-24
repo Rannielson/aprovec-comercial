@@ -13,19 +13,22 @@ create table hinova_credenciais (
   senha_enc bytea not null,
   token_sga_enc bytea not null,
   updated_at timestamptz not null default now(),
-  updated_by uuid not null references users (id)
+  updated_by uuid not null,
+  foreign key (tenant_id, updated_by) references users (tenant_id, id)
 );
 
 create table hinova_voluntario_mapping (
   tenant_id uuid not null references tenants (id),
-  user_id uuid not null references users (id),
+  user_id uuid not null,
   codigo_voluntario text not null,
   nome_hinova text not null,
   cpf_hinova text not null,
   mapped_at timestamptz not null default now(),
-  mapped_by uuid not null references users (id),
+  mapped_by uuid not null,
   primary key (tenant_id, user_id),
-  unique (tenant_id, codigo_voluntario)
+  unique (tenant_id, codigo_voluntario),
+  foreign key (tenant_id, user_id) references users (tenant_id, id),
+  foreign key (tenant_id, mapped_by) references users (tenant_id, id)
 );
 
 do $$
@@ -53,3 +56,16 @@ create policy hinova_voluntario_mapping_access on hinova_voluntario_mapping for 
 
 grant select, insert, update on hinova_credenciais to app_user;
 grant select, insert, delete on hinova_voluntario_mapping to app_user;
+
+-- provision_tenant only copies modules/role_template_permissions into tenant_modules/
+-- role_permissions once, at tenant creation. Backfill both for every tenant that already
+-- existed before this migration, so existing tenants' administradores get the feature too.
+insert into tenant_modules (tenant_id, module_key)
+select id, 'integracoes' from tenants
+on conflict do nothing;
+
+insert into role_permissions (role_id, tenant_id, permission_key, scope)
+select r.id, r.tenant_id, 'integracoes.gerenciar', null
+  from roles r
+ where r.source_template_key = 'administrador'
+on conflict do nothing;

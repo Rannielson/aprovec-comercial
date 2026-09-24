@@ -17,13 +17,12 @@ public static class CarteiraEndpoints
     private const string CommissaoExpression = """
         case when b.status = 'recebido' then
           round(coalesce((
-            select r.rate * b.valor
-              from commission_plans p
-              join commission_rules r on r.plan_id = p.id and r.type = 'own'
-             where p.tenant_id = @tenant
-               and p.effective_from <= date_trunc('month', b.pago_em)::date
-             order by p.effective_from desc
-             limit 1
+            select r.rate * b.valor from commission_rules r
+             where r.type = 'own'
+               and r.plan_id = (select p.id from commission_plans p
+                                 where p.tenant_id = @tenant and p.status = 'ativo'
+                                   and p.effective_from <= date_trunc('month', b.pago_em)::date
+                                 order by p.effective_from desc limit 1)
           ), 0), 2)
         else 0 end
         """;
@@ -64,8 +63,12 @@ public static class CarteiraEndpoints
         var tenant = request.RequireTenant();
         var user = request.RequireUser();
         var currentPage = page is null or < 1 ? 1 : page.Value;
+        currentPage = Math.Min(currentPage, 100_000);
         var statusFilter = status is null or "todos" ? null : status;
         var searchFilter = string.IsNullOrWhiteSpace(query) ? null : query.Trim();
+        // Postgres ILIKE treats %, _ and \ as wildcard/escape characters; escape them so the
+        // search behaves as a literal substring match (mirrors the mockup's .includes() intent).
+        searchFilter = searchFilter?.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
         var response = await db.InTenantAsync(tenant, user, async tx =>
         {
@@ -98,7 +101,7 @@ public static class CarteiraEndpoints
             var items = await tx.QueryAsync<ItemRow>(
                 $"""
                 select b.id, b.associado_nome, b.placa, b.valor, b.status, b.vencimento, b.pago_em,
-                       case when b.status = 'atraso' then (current_date - b.vencimento)::int end as dias_atraso,
+                       case when b.status = 'atraso' then ((now() at time zone 'America/Sao_Paulo')::date - b.vencimento)::int end as dias_atraso,
                        {CommissaoExpression} as comissao
                   from boletos b
                  where b.tenant_id = @tenant and b.participante_id = any(@ownerIds)

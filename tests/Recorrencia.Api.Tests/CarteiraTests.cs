@@ -53,6 +53,20 @@ public class CarteiraTests(ApiFixture api)
         Assert.Equal("Associado J9 5", Assert.Single(result.Items).AssociadoNome);
     }
 
+    // Guards against the plain-ILIKE substring search (restored in fix round 1, task 2) ever
+    // being silently replaced again by a word-boundary regex, which would break this exact
+    // capability: a plate like "TST0001" has no separator between the letter and digit parts,
+    // so \y-anchored matching would never find a partial fragment like "0001" inside it.
+    [Fact]
+    public async Task Search_matches_by_partial_plate()
+    {
+        var s = await api.SeedAsync();
+        var result = await (await LoginAsync(s, "joao")).GetJsonAsync<CarteiraDto>("/carteira?query=0001");
+
+        Assert.True(result.Items.Count > 1);
+        Assert.All(result.Items, i => Assert.Contains("0001", i.Placa));
+    }
+
     [Fact]
     public async Task Own_commission_is_calculated_for_a_received_boleto()
     {
@@ -62,6 +76,50 @@ public class CarteiraTests(ApiFixture api)
         var item = Assert.Single(result.Items);
         Assert.Equal(200m, item.Valor);
         Assert.Equal(14.00m, item.Comissao); // 200 × 7% (taxa "own" do plano seed)
+    }
+
+    // A draft plan (status = 'rascunho') with a later effective_from than the active plan must
+    // never leak its rate into the illustrative commission column -- only an activated plan may
+    // be used. The draft's effective_from (2026-09-01) sits between the active plan's
+    // (2026-08-01) and the target boleto's pago_em month, and its own rate (50%) is wildly
+    // different from the active plan's (7%), so any regression here changes the asserted value.
+    [Fact]
+    public async Task Draft_plan_with_a_later_effective_from_does_not_affect_commission()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        await ApiClient.ExpectAsync(await admin.PostAsync("/commission-plans", new
+        {
+            name = "Rascunho futuro",
+            effectiveFrom = "2026-09-01",
+            rules = new object[] { new { type = "own", rate = 0.50m } },
+        }), HttpStatusCode.Created);
+
+        var result = await (await LoginAsync(s, "joao")).GetJsonAsync<CarteiraDto>("/carteira?query=Associado J7 8&status=recebido");
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal(200m, item.Valor);
+        Assert.Equal(14.00m, item.Comissao); // ainda a taxa do plano ativo (7%), não os 50% do rascunho
+    }
+
+    [Fact]
+    public async Task Missing_permission_returns_forbidden()
+    {
+        var s = await api.SeedAsync();
+        var roleId = Guid.NewGuid();
+        await api.SqlAsync(
+            """
+            delete from user_roles where tenant_id = @tenant and user_id = @pedro;
+            insert into roles (id, tenant_id, name) values (@roleId, @tenant, 'Sem carteira');
+            insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenant, @roleId, 'usuarios.convidar', null);
+            insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @pedro, @roleId);
+            """,
+            new { roleId, tenant = s.TenantId, pedro = s.Pedro });
+
+        var response = await (await LoginAsync(s, "pedro")).GetAsync("/carteira");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("auth.forbidden", await ApiClient.CodeAsync(response));
     }
 
     [Fact]

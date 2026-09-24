@@ -59,3 +59,18 @@ export type Wallet = {
   totalValor: number;
   totalComissao: number;
 };
+
+export type UserSummary = { id: string; name: string; email: string; status: string };
+
+export type HinovaCredenciaisStatus = { configurado: boolean; atualizadoEm: string | null; atualizadoPor: string | null };
+
+export type HinovaVoluntario = { codigo: string; nome: string; cpf: string; jaVinculado: boolean; vinculadoA: string | null };
+
+export type HinovaMapeamento = {
+  userId: string;
+  userName: string;
+  codigoVoluntario: string;
+  nomeHinova: string;
+  cpfHinova: string;
+  mappedAt: string;
+};

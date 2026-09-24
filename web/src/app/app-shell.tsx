@@ -2,12 +2,13 @@ import Link from 'next/link';
 import { Icon, type IconName } from './components/app-icon';
 import type { Me } from '@/lib/types';
 
-export type ActivePage = 'overview' | 'wallet' | 'closing';
+export type ActivePage = 'overview' | 'wallet' | 'closing' | 'settings';
 
-const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string | null }[] = [
+const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string | null; permission?: string }[] = [
   { id: 'overview', icon: 'grid', label: 'Minha recorrência', href: '/' },
   { id: 'wallet', icon: 'wallet', label: 'Minha carteira', href: '/carteira' },
   { id: 'closing', icon: 'calendar', label: 'Fechamento', href: null },
+  { id: 'settings', icon: 'settings', label: 'Configurações', href: '/configuracoes/integracoes', permission: 'integracoes.gerenciar' },
 ];
 
 export function AppShell({ me, active, children }: { me: Me; active: ActivePage; children: React.ReactNode }) {
@@ -22,7 +23,7 @@ export function AppShell({ me, active, children }: { me: Me; active: ActivePage;
           <div className="brand-product">Recorrência comercial</div>
         </div>
         <nav aria-label="Navegação principal">
-          {NAV_ITEMS.map((item) =>
+          {NAV_ITEMS.filter((item) => !item.permission || me.permissions.some((p) => p.key === item.permission)).map((item) =>
             item.href ? (
               <Link
                 key={item.id}

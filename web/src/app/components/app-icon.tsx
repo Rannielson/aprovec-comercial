@@ -1,4 +1,4 @@
-export type IconName = 'grid' | 'wallet' | 'calendar' | 'logout' | 'search' | 'back' | 'chevron' | 'info';
+export type IconName = 'grid' | 'wallet' | 'calendar' | 'logout' | 'search' | 'back' | 'chevron' | 'info' | 'settings' | 'link' | 'trash';
 
 const svgProps = {
   viewBox: '0 0 24 24',
@@ -67,6 +67,30 @@ export function Icon({ name, className }: { name: IconName; className?: string }
         <svg className={cls} {...svgProps}>
           <circle cx={12} cy={12} r={9} />
           <path d="M12 11v6M12 7h.01" />
+        </svg>
+      );
+    case 'settings':
+      return (
+        <svg className={cls} {...svgProps}>
+          <circle cx={12} cy={12} r={3} />
+          <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
+        </svg>
+      );
+    case 'link':
+      return (
+        <svg className={cls} {...svgProps}>
+          <path d="M9 15 15 9" />
+          <path d="M11 6l1.5-1.5a4 4 0 1 1 5.5 5.5L16 11" />
+          <path d="M13 18l-1.5 1.5a4 4 0 1 1-5.5-5.5L8 13" />
+        </svg>
+      );
+    case 'trash':
+      return (
+        <svg className={cls} {...svgProps}>
+          <path d="M4 7h16" />
+          <path d="M10 11v6M14 11v6" />
+          <path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" />
+          <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
         </svg>
       );
   }

@@ -1,8 +1,9 @@
 import { notFound } from 'next/navigation';
 import { AppShell } from '../../app-shell';
-import { apiFetch, currentHost } from '@/lib/api';
+import { ApiError, apiFetch, currentHost } from '@/lib/api';
 import { Icon } from '../../components/app-icon';
 import { formatDate } from '@/lib/format';
+import { messageFor } from '@/lib/errors';
 import type { HinovaCredenciaisStatus, HinovaMapeamento, HinovaVoluntario, Me, UserSummary } from '@/lib/types';
 import { CredenciaisForm } from './credenciais-form';
 import { DesvincularForm, VincularForm } from './mapeamento-form';
@@ -42,8 +43,8 @@ export default async function IntegracoesPage({
       if (query) params.set('query', query);
       voluntarios = await apiFetch<HinovaVoluntario[]>(`/integracoes/hinova/voluntarios?${params.toString()}`);
       usuarios = (await apiFetch<UserSummary[]>('/users')).filter((u) => u.status === 'ativo');
-    } catch {
-      searchError = 'Não foi possível buscar voluntários na Hinova agora. Tente novamente em instantes.';
+    } catch (error) {
+      searchError = error instanceof ApiError ? messageFor(error.code) : 'Não foi possível buscar voluntários na Hinova agora. Tente novamente em instantes.';
     }
   }
 

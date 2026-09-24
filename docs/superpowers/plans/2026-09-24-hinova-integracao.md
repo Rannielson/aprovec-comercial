@@ -684,10 +684,10 @@ app.MapHinovaEndpoints();
 
 - [ ] **Step 3: Local dev config**
 
-In `src/Recorrencia.Api/appsettings.Development.json`, add a `Hinova` section (any valid base64 32-byte string works for local dev; this one is arbitrary and not secret):
+In `src/Recorrencia.Api/appsettings.Development.json`, add a `Hinova` section (any valid base64 32-byte string works for local dev; this one is arbitrary and not secret — verify with `base64 -d | wc -c` before using a hand-typed one, since a wrong length fails `HinovaOptions`' `.ValidateOnStart()` and crashes the API on boot in Development, a failure mode invisible to `ApiFixture`-based xunit tests since those set their own separate, correct key):
 
 ```json
-  "Hinova": { "EncryptionKey": "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU=", "UseFake": true },
+  "Hinova": { "EncryptionKey": "wPVrwE1vNyyiiZhzP+LlqFwU6G3GtSgGil6B+FR7ryE=", "UseFake": true },
 ```
 
 (Insert it as a new top-level key, e.g. right after the `"Email"` entry, keeping the file valid JSON.)
@@ -704,7 +704,7 @@ In `docker-compose.yml`, under the `api` service's `environment:` block, add:
 In `.env.example`, add:
 
 ```
-HINOVA_ENCRYPTION_KEY=MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU=
+HINOVA_ENCRYPTION_KEY=CL30Wp7qUfgxiO3zjmpagV7VIZpIRbjXHV14rHmLcuY=
 HINOVA_USE_FAKE=true
 ```
 

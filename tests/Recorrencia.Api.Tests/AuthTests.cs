@@ -37,7 +37,7 @@ public class AuthTests(ApiFixture api)
         Assert.Equal(("João Silva", s.Slug), (me.Name, me.Tenant.Slug));
         Assert.Contains(new PermissionDto("carteira.visualizar", "own"), me.Permissions);
         Assert.Contains(new PermissionDto("estrutura.visualizar", "direct"), me.Permissions);
-        Assert.Equal(6, me.Modules.Count);
+        Assert.Equal(7, me.Modules.Count);
     }
 
     [Theory]

@@ -77,7 +77,7 @@ public class PlatformTests(ApiFixture api)
         admin.Token = (await session.Content.ReadFromJsonAsync<SessionDto>(ApiClient.Json))!.Token;
 
         var me = await admin.GetJsonAsync<MeDto>("/me");
-        Assert.Equal(14, me.Permissions.Count);
+        Assert.Equal(15, me.Permissions.Count);
     }
 
     [Theory]

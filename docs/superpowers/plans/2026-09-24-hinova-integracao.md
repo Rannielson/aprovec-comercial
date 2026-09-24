@@ -1269,12 +1269,20 @@ Expected: PASS (all).
 - [ ] **Step 5: Run the full API test suite for regressions**
 
 Run: `dotnet test tests/Recorrencia.Api.Tests`
-Expected: PASS, no regressions.
+
+Expect two pre-existing failures surfaced here for the first time (no earlier task's test
+run covered them — Task 5 only ran a filtered subset), both caused by the same catalog
+change as the `RbacTests`/`ProvisioningTests`/`RoleTests` fixes already made in Task 1:
+
+- `tests/Recorrencia.Api.Tests/PlatformTests.cs`, `New_tenant_admin_receives_an_invite_and_gets_full_permissions`: `Assert.Equal(14, me.Permissions.Count);` → change to `15`.
+- `tests/Recorrencia.Api.Tests/AuthTests.cs`, `Login_returns_a_session_and_me_describes_the_user`: `Assert.Equal(6, me.Modules.Count);` → change to `7`.
+
+Fix both, then re-run `dotnet test tests/Recorrencia.Api.Tests` and confirm zero failures.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/Recorrencia.Api/Integracoes/HinovaEndpoints.cs tests/Recorrencia.Api.Tests/HinovaMapeamentosTests.cs
+git add src/Recorrencia.Api/Integracoes/HinovaEndpoints.cs tests/Recorrencia.Api.Tests/HinovaMapeamentosTests.cs tests/Recorrencia.Api.Tests/PlatformTests.cs tests/Recorrencia.Api.Tests/AuthTests.cs
 git commit -m "feat(api): add voluntarios listing and mapeamentos CRUD endpoints"
 ```
 

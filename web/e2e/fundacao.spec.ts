@@ -100,3 +100,24 @@ test('vendedor abre a carteira pela sidebar e filtra por situação', async ({ p
   await expect(page).toHaveURL(`${tenant}/carteira?status=cancelado`);
   await expect(page.getByText('4 boletos no filtro')).toBeVisible();
 });
+
+test('admin configura a Hinova e vincula um voluntário', async ({ page }) => {
+  await login(page, tenant, 'admin@aprovec.local');
+  await page.getByRole('link', { name: 'Configurações' }).click();
+  await expect(page).toHaveURL(`${tenant}/configuracoes/integracoes`);
+
+  await page.getByLabel('Usuário', { exact: true }).fill('usuario-dev');
+  await page.getByLabel('Senha').fill('senha-dev');
+  await page.getByLabel('Token da SGA').fill('token-dev');
+  await page.getByRole('button', { name: 'Salvar credenciais' }).click();
+  await expect(page.getByText('Credenciais salvas.')).toBeVisible();
+
+  await page.getByLabel('Buscar voluntário por nome').fill('Ana Paula');
+  await page.getByLabel('Buscar voluntário por nome').press('Enter');
+  await expect(page.getByRole('cell', { name: 'Ana Paula Ferreira' })).toBeVisible();
+
+  await page.getByLabel('Usuário APROVEC').selectOption({ label: 'João Silva' });
+  await page.getByRole('button', { name: 'Vincular' }).click();
+  await expect(page.getByText('Voluntário vinculado.')).toBeVisible();
+  await expect(page.getByRole('row', { name: /João Silva.*Ana Paula Ferreira/ })).toBeVisible();
+});

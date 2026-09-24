@@ -27,7 +27,7 @@ export async function TenantHome({ competencia }: { competencia?: string }) {
   const previousOwn = previous?.beneficiaries.find((b) => b.userId === me.id) ?? null;
 
   return (
-    <AppShell active="overview">
+    <AppShell me={me} active="overview">
       <div className="shell">
         <div className="page-heading">
           <p className="eyebrow">Painel do vendedor</p>

@@ -24,7 +24,7 @@ test('consultor entra, vê a comissão de setembro e sai', async ({ page }) => {
   await expect(page).toHaveURL(`${tenant}/login`);
 
   await login(page, tenant, 'joao@aprovec.local');
-  await expect(page.locator('.seller strong')).toHaveText('João Silva');
+  await expect(page.getByRole('complementary').getByText('João Silva')).toBeVisible();
 
   await page.goto(`${tenant}/?competencia=2026-09`);
   await expect(page.locator('.hero-number')).toHaveText(/R\$\s1\.600,00/);
@@ -79,7 +79,7 @@ test('plataforma cria empresa e a administradora define a senha pelo convite', a
   await page.getByLabel('Confirme a senha').fill('senha-da-dona-1');
   await page.getByRole('button', { name: 'Salvar senha' }).click();
 
-  await expect(page.locator('.seller strong')).toHaveText('Dona E2E');
+  await expect(page.getByRole('complementary').getByText('Dona E2E')).toBeVisible();
   // The tenant home page no longer displays the company name anywhere (the
   // app shell dropped that eyebrow in favor of a static page heading), so
   // confirm we landed on the new tenant's own subdomain instead.

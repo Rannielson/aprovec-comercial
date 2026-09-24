@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { apiFetch } from '@/lib/api';
 import { Icon, type IconName } from './components/app-icon';
 import type { Me } from '@/lib/types';
 
@@ -11,8 +10,7 @@ const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string |
   { id: 'closing', icon: 'calendar', label: 'Fechamento', href: null },
 ];
 
-export async function AppShell({ active, children }: { active: ActivePage; children: React.ReactNode }) {
-  const me = await apiFetch<Me>('/me');
+export function AppShell({ me, active, children }: { me: Me; active: ActivePage; children: React.ReactNode }) {
   const initials = me.name.split(' ').slice(0, 2).map((part) => part[0]).join('');
   const activeItem = NAV_ITEMS.find((item) => item.id === active);
 
@@ -20,13 +18,18 @@ export async function AppShell({ active, children }: { active: ActivePage; child
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <img src="/logo-aprovec.webp" alt="APROVEC Brasil" width={173} height={40} />
+          <img src="/logo-aprovec.webp" alt="APROVEC Brasil" width={173} height={45} />
           <div className="brand-product">Recorrência comercial</div>
         </div>
         <nav aria-label="Navegação principal">
           {NAV_ITEMS.map((item) =>
             item.href ? (
-              <Link key={item.id} href={item.href} className={item.id === active ? 'nav-item active' : 'nav-item'}>
+              <Link
+                key={item.id}
+                href={item.href}
+                className={item.id === active ? 'nav-item active' : 'nav-item'}
+                aria-current={item.id === active ? 'page' : undefined}
+              >
                 <Icon name={item.icon} />
                 <span>{item.label}</span>
               </Link>
@@ -50,7 +53,7 @@ export async function AppShell({ active, children }: { active: ActivePage; child
             <div>
               <strong>{me.name}</strong>
             </div>
-            <span className="seller-dot" aria-label="Sessão ativa" />
+            <span className="seller-dot" aria-hidden="true" />
           </div>
         </div>
         <form action="/logout" method="post" className="seller-logout">

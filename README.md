@@ -79,3 +79,48 @@ A árvore não tem limite fixo de níveis nem o antigo teto demonstrativo de 200
 A linha pontilhada representa a abrangência global do coordenador, sem relação de supervisão. Linhas vermelhas representam vínculos diretos; todos os consultores recebem 7% sobre a própria carteira e apenas seus consultores supervisionados diretamente geram 2%. Novos níveis não propagam comissão aos demais ancestrais.
 
 O exemplo cadastrado no navegador inclui uma segunda árvore de Bruno Costa, com Carla Mendes abaixo, e Lucas Almeida abaixo de Pedro para demonstrar a continuidade dos níveis. Esses participantes começam sem recebimentos e não alteram os totais do PDF.
+
+## Plataforma (fundação)
+
+A partir do mockup, a plataforma real é um SaaS multiempresa: API interna em C# (`src/Recorrencia.Api`), BFF em Next.js (`web/`) e PostgreSQL com RLS (`src/Recorrencia.Db`). O desenho está em `docs/superpowers/specs/2026-09-23-fundacao-saas-design.md`.
+
+### Pré-requisitos
+
+.NET SDK 10, Node 22 e Docker (no macOS, via Colima). Antes de rodar os testes .NET:
+
+```sh
+colima start
+export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
+```
+
+### Desenvolvimento
+
+```sh
+cp .env.example .env
+cp web/.env.local.example web/.env.local
+docker compose up -d db
+set -a; source .env; set +a
+dotnet run --project src/Recorrencia.Db -- bootstrap
+dotnet run --project src/Recorrencia.Db -- migrate
+(cd src/Recorrencia.Api && dotnet run --launch-profile http -- seed-dev)
+(cd src/Recorrencia.Api && dotnet run --launch-profile http)
+(cd web && npm install && npm run dev)
+```
+
+- Empresa de exemplo: http://aprovec.localhost:3000 (`joao@aprovec.local`, `maria@aprovec.local`, `pedro@aprovec.local`, `coordenacao@aprovec.local`, `admin@aprovec.local`).
+- Plataforma: http://admin.localhost:3000 (`admin@plataforma.local`).
+- Senha de todos no desenvolvimento: `senha-dev-123`.
+- E-mails (convites e redefinições) são gravados em `tmp/emails/`.
+
+### Testes
+
+```sh
+dotnet test
+(cd web && npm test)
+(cd web && npm run e2e)
+```
+
+### Containers
+
+`docker compose up -d --build` sobe banco, migrações, API (sem porta publicada) e web em `127.0.0.1:3000`. Em produção, coloque um proxy reverso com TLS curinga (`*.seu-dominio`) na frente do `web`, defina `ROOT_DOMAIN`, `WEB_SCHEME=https` e `COOKIE_SECURE=true`, e garanta que o proxy sobrescreva `X-Forwarded-For` e `X-Forwarded-Host` (nunca repasse os valores recebidos do cliente sem verificação), já que ambos alimentam a identificação do IP do cliente e do tenant. O envio de e-mail por SMTP ainda não está implementado: até lá, os e-mails aparecem no log da API.

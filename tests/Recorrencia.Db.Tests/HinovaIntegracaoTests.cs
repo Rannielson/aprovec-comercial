@@ -134,24 +134,35 @@ public class HinovaIntegracaoTests(PostgresFixture db)
     }
 
     [Fact]
-    public async Task Backfill_statements_are_idempotent_and_grant_the_permission()
+    public async Task Backfill_statements_grant_the_permission_to_a_tenant_that_predates_the_migration()
     {
         var (tenant, admin) = await _seed.ProvisionAsync();
         await ActivateAsync(admin);
 
-        // Simulates re-running 0014's backfill against a tenant that already has the row
-        // (provision_tenant already granted it, since this tenant was created after 0014).
-        // The point is proving `on conflict do nothing` doesn't error the second time.
-        await _seed.ExecAsync(
-            """
-            insert into tenant_modules (tenant_id, module_key) select id, 'integracoes' from tenants on conflict do nothing;
-            insert into role_permissions (role_id, tenant_id, permission_key, scope)
-            select r.id, r.tenant_id, 'integracoes.gerenciar', null from roles r where r.source_template_key = 'administrador'
-            on conflict do nothing;
-            """);
+        // Simulate a tenant provisioned before this migration existed: remove the rows
+        // provision_tenant already inserted for it, and confirm they're really gone.
+        await _seed.ExecAsync("delete from tenant_modules where tenant_id = @tenant and module_key = 'integracoes'", new { tenant });
+        await _seed.ExecAsync("delete from role_permissions where tenant_id = @tenant and permission_key = 'integracoes.gerenciar'", new { tenant });
 
-        var has = await db.AsAppUserAsync(tenant, admin, (c, tx) =>
-            c.ExecuteScalarAsync<bool>("select app.has_permission('integracoes.gerenciar')", null, tx));
-        Assert.True(has);
+        Assert.False(await db.AsAppUserAsync(tenant, admin, (c, tx) =>
+            c.ExecuteScalarAsync<bool>("select app.has_permission('integracoes.gerenciar')", null, tx)));
+
+        // Re-run the exact backfill statements from 0014, scoped to this one tenant, twice —
+        // proving both that it actually grants the permission AND that it's idempotent.
+        for (var i = 0; i < 2; i++)
+        {
+            await _seed.ExecAsync(
+                """
+                insert into tenant_modules (tenant_id, module_key) select id, 'integracoes' from tenants where id = @tenant on conflict do nothing;
+                insert into role_permissions (role_id, tenant_id, permission_key, scope)
+                select r.id, r.tenant_id, 'integracoes.gerenciar', null from roles r
+                 where r.source_template_key = 'administrador' and r.tenant_id = @tenant
+                on conflict do nothing;
+                """,
+                new { tenant });
+        }
+
+        Assert.True(await db.AsAppUserAsync(tenant, admin, (c, tx) =>
+            c.ExecuteScalarAsync<bool>("select app.has_permission('integracoes.gerenciar')", null, tx)));
     }
 }

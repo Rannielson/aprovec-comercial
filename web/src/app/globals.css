@@ -39,10 +39,8 @@ a { color: var(--accent); }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px 0 16px 0; padding: 24px; display: grid; gap: 16px; width: 100%; max-width: 100%; }
 .auth .card { max-width: 400px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
-.section-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .eyebrow { margin: 0; color: #a52b2b; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 .muted { margin: 0; color: var(--muted); }
-.total { margin: 4px 0 0; font-family: Inter, Arial, sans-serif; font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; }
 
 .badge { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 0.8rem; color: var(--muted); background: var(--surface); }
 .badge.progress { border-color: transparent; background: #f2eded; color: #7b5556; }
@@ -68,3 +66,28 @@ th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--lin
 th { color: var(--muted); font-weight: 500; font-size: 0.8rem; }
 td.number, th.number { text-align: right; font-variant-numeric: tabular-nums; }
 tr.subtotal td { font-weight: 600; }
+
+.commission-band { background: var(--brand-black); border-radius: 20px 0 20px 0; padding: 28px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; color: #fff; }
+.commission-total { min-width: 220px; padding-right: 24px; border-right: 1px solid #ffffff26; }
+.commission-band .overline { font-size: 0.7rem; font-weight: 500; color: #dad7d8; }
+.hero-number { font-family: Inter, Arial, sans-serif; font-size: 2.4rem; font-weight: 650; letter-spacing: -0.045em; margin: 8px 0; font-variant-numeric: tabular-nums; }
+.commission-total .subtle { font-size: 0.7rem; color: #b7b3b5; }
+.commission-part { display: flex; align-items: center; gap: 12px; }
+.rate-badge { width: 42px; height: 46px; background: #ffffff12; color: #ffb2ae; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; font-weight: 500; flex-shrink: 0; }
+.rate-badge span { font-size: 0.7rem; margin-left: 2px; }
+.rate-badge.secondary { background: #ffffff0d; color: #d4d0d3; }
+.commission-part .subtle { font-size: 0.7rem; color: #d9d5d6; display: block; }
+.commission-part strong { display: block; font-family: Inter, Arial, sans-serif; font-size: 1.3rem; font-weight: 600; color: #fff; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.commission-part .formula { font-size: 0.65rem; color: #ada8ab; display: block; margin-top: 4px; }
+.commission-band .badge { margin-left: auto; }
+
+.closing-card { background: #fff9f8; border: 1px solid #e8d1d1; border-top: 3px solid var(--brand-red-dark); border-radius: 18px 0 18px 0; padding: 22px; display: grid; gap: 6px; }
+.closing-eyebrow { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em; color: #a32a2a; text-transform: uppercase; }
+.closing-card h2 { color: #910606; font-size: 1.05rem; }
+.closing-amount { font-family: Inter, Arial, sans-serif; font-size: 1.5rem; font-weight: 650; color: #910606; margin: 4px 0; }
+.closing-card .badge { justify-self: start; }
+
+@media (max-width: 600px) {
+  .commission-band { flex-direction: column; align-items: flex-start; }
+  .commission-total { border-right: 0; border-bottom: 1px solid #ffffff26; padding-right: 0; padding-bottom: 16px; width: 100%; }
+}

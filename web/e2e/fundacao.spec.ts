@@ -27,7 +27,7 @@ test('consultor entra, vê a comissão de setembro e sai', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Olá, João Silva' })).toBeVisible();
 
   await page.goto(`${tenant}/?competencia=2026-09`);
-  await expect(page.locator('.total')).toHaveText(/R\$\s1\.600,00/);
+  await expect(page.locator('.hero-number')).toHaveText(/R\$\s1\.600,00/);
   await expect(page.getByRole('cell', { name: 'Carteira própria' })).toBeVisible();
   await expect(page.getByRole('cell', { name: 'Supervisão · 1º nível' })).toBeVisible();
 
@@ -35,10 +35,14 @@ test('consultor entra, vê a comissão de setembro e sai', async ({ page }) => {
   await expect(page).toHaveURL(`${tenant}/login`);
 });
 
-test('coordenação vê o total do exemplo do PDF', async ({ page }) => {
+test('coordenação vê seu próprio total pessoal na faixa de comissão', async ({ page }) => {
   await login(page, tenant, 'coordenacao@aprovec.local');
   await page.goto(`${tenant}/?competencia=2026-09`);
-  await expect(page.locator('.total')).toHaveText(/R\$\s3\.100,00/);
+  // A faixa mostra o total PESSOAL de quem está logado (own.total), não o agregado da equipe
+  // (commissions.total, que era R$ 3.100,00). Como coordenadora ela só participa via a regra
+  // global "Coordenação" (1% sobre a base de setembro de todos: R$ 35.000,00 => R$ 350,00) —
+  // valor confirmado empiricamente contra a tabela detalhada da própria página.
+  await expect(page.locator('.hero-number')).toHaveText(/R\$\s350,00/);
 });
 
 test('senha errada mostra a mensagem de erro', async ({ page }) => {

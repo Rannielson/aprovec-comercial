@@ -5,7 +5,9 @@ import {
   formatMoney,
   formatPercent,
   isCompetencia,
+  previousCompetencia,
   ruleLabel,
+  statusBadgeClass,
   statusLabels,
 } from '@/lib/format';
 import type { Commissions, Me } from '@/lib/types';
@@ -15,6 +17,8 @@ export async function TenantHome({ competencia }: { competencia?: string }) {
   const month = isCompetencia(competencia) ? competencia : currentCompetencia();
   const canSeeCommissions = me.permissions.some((p) => p.key === 'comissoes.visualizar');
   const commissions = canSeeCommissions ? await apiFetch<Commissions>(`/commissions/${month}`) : null;
+  const previous = canSeeCommissions ? await apiFetch<Commissions>(`/commissions/${previousCompetencia(month)}`) : null;
+  const own = commissions?.beneficiaries.find((b) => b.userId === me.id) ?? null;
 
   return (
     <main className="shell">
@@ -29,14 +33,28 @@ export async function TenantHome({ competencia }: { competencia?: string }) {
       </header>
 
       {commissions ? (
-        <section className="card">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow">Comissões · {formatCompetencia(month)}</p>
-              <p className="total">{formatMoney(commissions.total)}</p>
+        <>
+          <section className="commission-band">
+            <div className="commission-total">
+              <span className="overline">Comissão apurada · {formatCompetencia(month)}</span>
+              <div className="hero-number">{formatMoney(own ? own.total : commissions.total)}</div>
+              <span className="subtle">Sobre pagamentos confirmados</span>
             </div>
-            <span className="badge">{statusLabels[commissions.status] ?? commissions.status}</span>
-          </div>
+            {own?.byRule.map((rule, index) => (
+              <div className="commission-part" key={`${rule.ruleType}-${rule.level}-${rule.groupId}-${rule.rate}`}>
+                <div className={index === 0 ? 'rate-badge' : 'rate-badge secondary'}>
+                  {Math.round(rule.rate * 100)}
+                  <span>%</span>
+                </div>
+                <div>
+                  <span className="subtle">{ruleLabel(rule)}</span>
+                  <strong>{formatMoney(rule.amount)}</strong>
+                  <span className="formula">{formatMoney(rule.base)} · {formatPercent(rule.rate)}</span>
+                </div>
+              </div>
+            ))}
+            <span className={statusBadgeClass(commissions.status)}>{statusLabels[commissions.status] ?? commissions.status}</span>
+          </section>
 
           <form className="inline" method="get">
             <label>
@@ -45,6 +63,15 @@ export async function TenantHome({ competencia }: { competencia?: string }) {
             </label>
             <button type="submit" className="secondary">Ver</button>
           </form>
+
+          {previous && (previous.total > 0 || previous.beneficiaries.length > 0) && (
+            <section className="closing-card">
+              <p className="closing-eyebrow">Fechamento anterior</p>
+              <h2>{formatCompetencia(previousCompetencia(month))}</h2>
+              <p className="closing-amount">{formatMoney(previous.total)}</p>
+              <span className={statusBadgeClass(previous.status)}>{statusLabels[previous.status] ?? previous.status}</span>
+            </section>
+          )}
 
           {commissions.beneficiaries.length === 0 ? (
             <p className="muted">Nenhuma comissão nesta competência.</p>
@@ -83,7 +110,7 @@ export async function TenantHome({ competencia }: { competencia?: string }) {
               </table>
             </div>
           )}
-        </section>
+        </>
       ) : (
         <section className="card">
           <p className="muted">Seu perfil não inclui acesso às comissões.</p>

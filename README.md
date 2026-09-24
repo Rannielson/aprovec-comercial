@@ -123,7 +123,7 @@ dotnet test
 
 ### Containers
 
-`docker compose up -d --build` sobe banco, migrações, API (sem porta publicada) e web em `127.0.0.1:3000`. Em produção, coloque um proxy reverso com TLS curinga (`*.seu-dominio`) na frente do `web`, defina `ROOT_DOMAIN`, `WEB_SCHEME=https` e `COOKIE_SECURE=true`, e garanta que o proxy sobrescreva `X-Forwarded-For` e `X-Forwarded-Host` (nunca repasse os valores recebidos do cliente sem verificação), já que ambos alimentam a identificação do IP do cliente e do tenant. O envio de e-mail por SMTP ainda não está implementado: até lá, os e-mails aparecem no log da API.
+`docker compose up -d --build` sobe banco, migrações, API (sem porta publicada) e web em `127.0.0.1:3000`. Em produção, coloque um proxy reverso com TLS curinga (`*.seu-dominio`) na frente do `web`, defina `ROOT_DOMAIN`, `WEB_SCHEME=https` e `COOKIE_SECURE=true`, e garanta que o proxy sobrescreva `X-Forwarded-For` e `X-Forwarded-Host` (nunca repasse os valores recebidos do cliente sem verificação), já que ambos alimentam a identificação do IP do cliente e do tenant. O envio de e-mail por SMTP ainda não está implementado: até lá, os e-mails aparecem no log da API. `HINOVA_ENCRYPTION_KEY` é obrigatória (o container `api` recusa subir sem ela) e precisa ser um valor base64 de 32 bytes, por exemplo gerado com `openssl rand -base64 32`; `HINOVA_USE_FAKE` tem padrão `false` (usa a API real da Hinova) e deve ficar sem definição ou `false` em produção — só use `true` em desenvolvimento local/E2E, onde ela troca o cliente real por um fake determinístico.
 
 Para criar o primeiro administrador da plataforma num deploy em containers:
 

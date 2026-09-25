@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { treeLayout } from './tree-layout';
+import { treeLayout, type TreePerson } from './tree-layout';
 
 describe('treeLayout', () => {
   it('places a single root at the origin row', () => {
@@ -75,5 +75,95 @@ describe('treeLayout', () => {
     const without = treeLayout([{ id: 'a', parentId: null }]);
     expect(withPlaceholder.newRoot).not.toBeNull();
     expect(without.newRoot).toBeNull();
+  });
+
+  it('nulls parentId at the root of a rootId-scoped subtree', () => {
+    const result = treeLayout(
+      [
+        { id: 'a', parentId: null },
+        { id: 'b', parentId: 'a' },
+        { id: 'c', parentId: 'b' },
+      ],
+      { rootId: 'b' },
+    );
+    const b = result.nodes.find((n) => n.id === 'b')!;
+    expect(b.depth).toBe(0);
+    expect(b.parentId).toBeNull();
+    expect(result.nodes.map((n) => n.id).sort()).toEqual(['b', 'c']);
+    // No edge should ever point "from" a node outside the returned nodes.
+    expect(result.edges.every((e) => result.nodes.includes(e.from))).toBe(true);
+  });
+
+  it('falls back to the full forest when rootId matches no one', () => {
+    const result = treeLayout(
+      [
+        { id: 'a', parentId: null },
+        { id: 'b', parentId: null },
+      ],
+      { rootId: 'does-not-exist' },
+    );
+    expect(result.nodes.map((n) => n.id).sort()).toEqual(['a', 'b']);
+    expect(result.roots).toEqual(expect.arrayContaining(['a', 'b']));
+  });
+
+  it('centers a small multi-root forest that hits the 940px width floor', () => {
+    // Two single-node roots: forestWidth = 226 + 226 + 88 (rootGap) = 540, well under the 940 floor,
+    // so the leftover canvas width must be split evenly as a centering offset, not left flush at padding.
+    const result = treeLayout([
+      { id: 'a', parentId: null },
+      { id: 'b', parentId: null },
+    ]);
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+    expect(result.width).toBe(940);
+    const forestWidth = 226 + 226 + 88;
+    const expectedOffset = (940 - forestWidth) / 2;
+    expect(byId.a.x).toBe(expectedOffset);
+    expect(byId.b.x).toBe(expectedOffset + 226 + 88);
+  });
+
+  it('spaces a wide multi-root forest by one rootGap between roots (no trailing gap) and sizes width to match', () => {
+    const nodeWidth = 226;
+    const siblingGap = 34;
+    const rootGap = 88;
+    const padding = 40;
+
+    const makeRootWithChildren = (rootId: string, childPrefix: string) => [
+      { id: rootId, parentId: null },
+      { id: `${childPrefix}1`, parentId: rootId },
+      { id: `${childPrefix}2`, parentId: rootId },
+      { id: `${childPrefix}3`, parentId: rootId },
+      { id: `${childPrefix}4`, parentId: rootId },
+    ];
+
+    const people = [...makeRootWithChildren('a', 'ac'), ...makeRootWithChildren('b', 'bc')];
+    const result = treeLayout(people);
+
+    // Each root's span is driven by its 4 children: 4 * nodeWidth + 3 * siblingGap.
+    const rootSpan = nodeWidth * 4 + siblingGap * 3;
+    const forestWidth = rootSpan * 2 + rootGap; // exactly one gap BETWEEN the roots, no trailing gap
+    const expectedWidth = forestWidth + padding * 2;
+
+    expect(result.width).toBe(expectedWidth);
+
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]));
+    // The shared centering offset cancels out of the difference, leaving exactly span + rootGap.
+    expect(byId.b.x - byId.a.x).toBe(rootSpan + rootGap);
+    // The forest is centered: with the canvas sized to content + 2*padding (floor not hit here),
+    // the leftmost child sits exactly `padding` from the canvas edge.
+    const leftmostChildX = Math.min(...['ac1', 'ac2', 'ac3', 'ac4'].map((id) => byId[id].x));
+    expect(leftmostChildX).toBe(padding);
+  });
+
+  it('handles a very deep chain without recursing (no stack overflow)', () => {
+    const depth = 3000;
+    const people: TreePerson[] = [{ id: 'p0', parentId: null }];
+    for (let i = 1; i < depth; i++) {
+      people.push({ id: `p${i}`, parentId: `p${i - 1}` });
+    }
+    expect(() => treeLayout(people)).not.toThrow();
+    const result = treeLayout(people);
+    expect(result.nodes).toHaveLength(depth);
+    const deepest = result.nodes.find((n) => n.id === `p${depth - 1}`)!;
+    expect(deepest.depth).toBe(depth - 1);
   });
 });

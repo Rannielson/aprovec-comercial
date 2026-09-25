@@ -154,12 +154,12 @@ describe('treeLayout', () => {
     expect(leftmostChildX).toBe(padding);
   });
 
-  it('starts the first row below the gestão global band, like the mockup', () => {
+  it('starts the first row below the brand band, like the mockup', () => {
     const result = treeLayout([{ id: 'a', parentId: null }]);
     const a = result.nodes[0];
-    expect(result.manager).toEqual({ x: 940 / 2 - 175, y: 26, width: 350, height: 110 });
+    expect(result.brand).toEqual({ x: 940 / 2 - 175, y: 26, width: 350, height: 110 });
     expect(a.y).toBe(202);
-    expect(a.y).toBeGreaterThan(result.manager.y + result.manager.height);
+    expect(a.y).toBeGreaterThan(result.brand.y + result.brand.height);
     expect(result.height).toBe(Math.max(460, 202 + 154 + 82));
   });
 

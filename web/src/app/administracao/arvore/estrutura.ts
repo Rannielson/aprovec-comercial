@@ -36,14 +36,10 @@ export type Participante = {
   valuesHidden: boolean;
 };
 
-/** Someone paid by a `global` rule — drawn in the fixed "gestão global" band, not in the pyramid. */
-export type Gestor = { id: string; name: string; rate: number; recebido: number; comissao: number };
-
 export type Estrutura = {
   sellers: Participante[];
-  gestores: Gestor[];
   /** Tenant-wide rates observed this competência, for the legend and the "Nova árvore" card. */
-  rates: { own: number | null; referral: number | null; global: number | null };
+  rates: { own: number | null; referral: number | null };
 };
 
 const isReferral = (r: BeneficiaryCommission['byRule'][number]) => r.ruleType === 'upline' && r.level === 1;
@@ -90,24 +86,8 @@ export function buildEstrutura(
 ): Estrutura {
   const beneficiaries = commissions?.beneficiaries ?? [];
   const byUser = new Map(beneficiaries.map((b) => [b.userId, b]));
-  const userById = new Map(users.map((u) => [u.id, u]));
 
-  const gestores: Gestor[] = [];
-  for (const b of beneficiaries) {
-    const globals = b.byRule.filter((r) => r.ruleType === 'global');
-    if (globals.length === 0) continue;
-    gestores.push({
-      id: b.userId,
-      name: userById.get(b.userId)?.name ?? b.name ?? 'Gestor',
-      rate: globals[0].rate,
-      recebido: globals[0].base,
-      comissao: globals.reduce((sum, r) => sum + r.amount, 0),
-    });
-  }
-  gestores.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-  const gestorIds = new Set(gestores.map((g) => g.id));
-
-  const sellerUsers = users.filter((u) => !gestorIds.has(u.id) && u.status !== 'desligado');
+  const sellerUsers = users.filter((u) => u.status !== 'desligado');
   const sellerIds = new Set(sellerUsers.map((u) => u.id));
   const visible = visibleIds(users, viewer);
 
@@ -142,7 +122,6 @@ export function buildEstrutura(
   const rates = {
     own: allRules.find((r) => r.ruleType === 'own')?.rate ?? null,
     referral: allRules.find(isReferral)?.rate ?? null,
-    global: gestores[0]?.rate ?? null,
   };
 
   // The active commission plan is tenant-wide (one `own` rate, one level-1 `upline` rate), so someone
@@ -153,5 +132,5 @@ export function buildEstrutura(
     s.referralRate ??= rates.referral;
   }
 
-  return { sellers, gestores, rates };
+  return { sellers, rates };
 }

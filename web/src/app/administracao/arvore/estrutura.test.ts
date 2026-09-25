@@ -33,20 +33,6 @@ const commissions = (beneficiaries: Commissions['beneficiaries']): Commissions =
 });
 
 describe('buildEstrutura', () => {
-  it('puts anyone with a global rule in the gestor band, not the pyramid', () => {
-    const result = buildEstrutura(
-      [user('gestor'), user('ana')],
-      commissions([
-        { userId: 'gestor', name: 'GESTOR', total: 100, byRule: [rule('global', 0.01, 10000)] },
-        { userId: 'ana', name: 'ANA', total: 70, byRule: [rule('own', 0.07, 1000)] },
-      ]),
-      ADMIN,
-    );
-    expect(result.gestores).toEqual([{ id: 'gestor', name: 'GESTOR', rate: 0.01, recebido: 10000, comissao: 100 }]);
-    expect(result.sellers.map((s) => s.id)).toEqual(['ana']);
-    expect(result.rates).toEqual({ own: 0.07, referral: null, global: 0.01 });
-  });
-
   it('renders zeros for a participant with no commission entry at all', () => {
     const result = buildEstrutura([user('ana'), user('novo', 'ana')], commissions([]), ADMIN);
     const novo = result.sellers.find((s) => s.id === 'novo')!;
@@ -67,7 +53,6 @@ describe('buildEstrutura', () => {
 
   it('works without any commissions response (no comissoes.visualizar)', () => {
     const result = buildEstrutura([user('ana')], null, ADMIN);
-    expect(result.gestores).toEqual([]);
     expect(result.sellers[0]).toMatchObject({ recebido: 0, comissao: 0 });
   });
 
@@ -126,14 +111,16 @@ describe('buildEstrutura', () => {
 
   it('excludes desligados and re-roots anyone whose supervisor is outside the pyramid', () => {
     const result = buildEstrutura(
-      [user('gestor'), user('saiu', null, 'desligado'), user('ana', 'gestor'), user('bia', 'saiu'), user('caio', 'ana')],
-      commissions([{ userId: 'gestor', name: 'GESTOR', total: 10, byRule: [rule('global', 0.01, 1000)] }]),
+      // ana's stored supervisorId points at someone who was never even in this users list (a
+      // stale reference) -- she must still be drawn as a root, not silently dropped.
+      [user('saiu', null, 'desligado'), user('ana', 'inexistente'), user('bia', 'saiu'), user('caio', 'ana')],
+      commissions([]),
       ADMIN,
     );
     const byId = Object.fromEntries(result.sellers.map((s) => [s.id, s]));
     expect(Object.keys(byId).sort()).toEqual(['ana', 'bia', 'caio']);
     expect(byId.ana.parentId).toBeNull();
-    expect(byId.ana.supervisorId).toBe('gestor');
+    expect(byId.ana.supervisorId).toBe('inexistente');
     expect(byId.bia.parentId).toBeNull();
     expect(byId.caio.parentId).toBe('ana');
   });

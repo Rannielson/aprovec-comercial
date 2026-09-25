@@ -33,6 +33,7 @@ export function Pyramid({
   roots,
   selectedRoot,
   showValues,
+  restrictedScope,
   canAddChild,
   initialTarget,
   voluntarios,
@@ -48,6 +49,8 @@ export function Pyramid({
   selectedRoot: string;
   /** False when the viewer lacks `comissoes.visualizar` — amounts render as "—". */
   showValues: boolean;
+  /** True when the viewer's comissoes.visualizar scope is own/direct/subtree — an empty gestores[] isn't ground truth. */
+  restrictedScope: boolean;
   canAddChild: boolean;
   /** Which add panel is open on load (`?adicionar=`): a node id, NOVA_ARVORE, or null. */
   initialTarget: string | null;
@@ -305,9 +308,13 @@ export function Pyramid({
                 </span>
                 <div>
                   <span>GESTÃO GLOBAL</span>
-                  <strong>{showValues ? 'Nenhum gestor nesta competência' : 'Valores restritos'}</strong>
+                  <strong>{!showValues || restrictedScope ? 'Valores restritos' : 'Nenhum gestor nesta competência'}</strong>
                   <small>
-                    {showValues ? 'Nenhuma regra global apurada até agora' : 'Seu perfil não inclui acesso às comissões'}
+                    {!showValues
+                      ? 'Seu perfil não inclui acesso às comissões'
+                      : restrictedScope
+                        ? 'Seu acesso não cobre a gestão global'
+                        : 'Nenhuma regra global apurada até agora'}
                   </small>
                 </div>
               </div>

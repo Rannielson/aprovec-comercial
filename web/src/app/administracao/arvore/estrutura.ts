@@ -40,6 +40,41 @@ export type Estrutura = {
 
 const isReferral = (r: BeneficiaryCommission['byRule'][number]) => r.ruleType === 'upline' && r.level === 1;
 
+/**
+ * Who the viewer's `comissoes.visualizar` scope actually covers, from the `users` list's
+ * `supervisorId` edges — null means everyone (no additional hiding needed).
+ */
+function visibleIds(users: UserNode[], viewer: { id: string; commissionScope: string | null }): Set<string> | null {
+  if (viewer.commissionScope === null || viewer.commissionScope === 'tenant') return null; // null = everyone visible
+  if (viewer.commissionScope === 'own') return new Set([viewer.id]);
+
+  const childrenOf = new Map<string, string[]>();
+  for (const u of users) {
+    if (u.supervisorId === null) continue;
+    const list = childrenOf.get(u.supervisorId) ?? [];
+    list.push(u.id);
+    childrenOf.set(u.supervisorId, list);
+  }
+
+  if (viewer.commissionScope === 'direct') {
+    return new Set([viewer.id, ...(childrenOf.get(viewer.id) ?? [])]);
+  }
+
+  // subtree
+  const visible = new Set([viewer.id]);
+  const queue = [viewer.id];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    for (const child of childrenOf.get(id) ?? []) {
+      if (!visible.has(child)) {
+        visible.add(child);
+        queue.push(child);
+      }
+    }
+  }
+  return visible;
+}
+
 export function buildEstrutura(
   users: UserNode[],
   commissions: Commissions | null,
@@ -66,6 +101,7 @@ export function buildEstrutura(
 
   const sellerUsers = users.filter((u) => !gestorIds.has(u.id) && u.status !== 'desligado');
   const sellerIds = new Set(sellerUsers.map((u) => u.id));
+  const visible = visibleIds(users, viewer);
 
   const sellers = sellerUsers.map((u): Participante => {
     const b = byUser.get(u.id);
@@ -83,9 +119,11 @@ export function buildEstrutura(
       recebido: own?.base ?? 0,
       comissao: b?.total ?? 0,
       referralRate: b?.byRule.find(isReferral)?.rate ?? null,
-      // An `own`-scoped viewer (e.g. consultor) only ever gets their own row from /commissions, so anyone
-      // else's absence there says nothing about their activity — their zeros must not be shown as real.
-      valuesHidden: viewer.commissionScope === 'own' && u.id !== viewer.id,
+      // An `own`/`direct`/`subtree`-scoped viewer only ever gets a partial `beneficiaries[]` from
+      // /commissions (whatever `app.commission_beneficiaries()` covers for their scope), so anyone
+      // outside that coverage has no entry there — their absence says nothing about their activity,
+      // and their zeros must not be shown as real.
+      valuesHidden: visible !== null && !visible.has(u.id),
     };
   });
 

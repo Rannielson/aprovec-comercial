@@ -124,10 +124,29 @@ describe('buildEstrutura', () => {
     expect(bia).toMatchObject({ valuesHidden: true, rate: null, recebido: 0, comissao: 0 });
   });
 
-  it('does not hide anyone for broader commission scopes', () => {
-    for (const commissionScope of ['direct', 'subtree', 'tenant', null]) {
+  it('does not hide anyone for full-visibility commission scopes', () => {
+    for (const commissionScope of ['tenant', null]) {
       const result = buildEstrutura([user('ana'), user('bia', 'ana')], commissions([]), { id: 'ana', commissionScope });
       expect(result.sellers.every((s) => !s.valuesHidden)).toBe(true);
     }
+  });
+
+  it("hides people outside a direct-scoped or subtree-scoped viewer's real coverage", () => {
+    // ana -> bia -> caio (chain); dora is unrelated (root, no relation to ana)
+    const users = [user('ana'), user('bia', 'ana'), user('caio', 'bia'), user('dora')];
+
+    const direct = buildEstrutura(users, commissions([]), { id: 'ana', commissionScope: 'direct' });
+    const byIdDirect = Object.fromEntries(direct.sellers.map((s) => [s.id, s]));
+    expect(byIdDirect.ana.valuesHidden).toBe(false);
+    expect(byIdDirect.bia.valuesHidden).toBe(false);
+    expect(byIdDirect.caio.valuesHidden).toBe(true); // two levels down, outside 'direct'
+    expect(byIdDirect.dora.valuesHidden).toBe(true); // unrelated
+
+    const subtree = buildEstrutura(users, commissions([]), { id: 'ana', commissionScope: 'subtree' });
+    const byIdSubtree = Object.fromEntries(subtree.sellers.map((s) => [s.id, s]));
+    expect(byIdSubtree.ana.valuesHidden).toBe(false);
+    expect(byIdSubtree.bia.valuesHidden).toBe(false);
+    expect(byIdSubtree.caio.valuesHidden).toBe(false); // subtree reaches deeper
+    expect(byIdSubtree.dora.valuesHidden).toBe(true); // still unrelated
   });
 });

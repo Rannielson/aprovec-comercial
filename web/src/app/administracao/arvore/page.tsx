@@ -40,6 +40,9 @@ export default async function ArvorePage({
   const showValues = has('comissoes.visualizar');
   // Existence alone isn't enough: an `own` scope returns only the viewer's own row (see buildEstrutura).
   const commissionScope = me.permissions.find((p) => p.key === 'comissoes.visualizar')?.scope ?? null;
+  // Only a tenant-scoped (or unscoped/null, meaning showValues is already false) viewer can trust an
+  // empty gestores[] as ground truth — an own/direct/subtree scope might just not cover the real gestor.
+  const restrictedScope = commissionScope !== null && commissionScope !== 'tenant';
   // POST /users with Hinova fields needs usuarios.convidar + integracoes.gerenciar (and the voluntário
   // search needs integracoes.gerenciar); setting a supervisor additionally needs estrutura.editar.
   const canAddRoot = has('usuarios.convidar') && has('integracoes.gerenciar');
@@ -139,6 +142,7 @@ export default async function ArvorePage({
               roots={roots}
               selectedRoot={selectedRoot}
               showValues={showValues}
+              restrictedScope={restrictedScope}
               canAddChild={canAddChild}
               initialTarget={initialTarget}
               voluntarios={voluntarios}

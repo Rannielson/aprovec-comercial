@@ -70,7 +70,7 @@ public static class UserEndpoints
         var codigoVoluntario = (body.CodigoVoluntario ?? "").Trim();
         var nomeHinova = (body.NomeHinova ?? "").Trim();
         var cpfHinova = (body.CpfHinova ?? "").Trim();
-        var linkingHinova = codigoVoluntario.Length > 0;
+        var hasHinovaFields = body.CodigoVoluntario is not null || body.NomeHinova is not null || body.CpfHinova is not null;
 
         var roleIds = body.RoleIds ?? [];
         var mine = await permissions.GetAsync(ct);
@@ -83,8 +83,12 @@ public static class UserEndpoints
             throw new ApiProblem(StatusCodes.Status403Forbidden, "auth.forbidden");
         // Creating a Hinova voluntário mapping is exactly as sensitive as the Fase 3
         // credentials/mapping screen that owns hinova_voluntario_mapping -- same permission.
-        if (linkingHinova && !mine.Has("integracoes.gerenciar"))
+        if (hasHinovaFields && !mine.Has("integracoes.gerenciar"))
             throw new ApiProblem(StatusCodes.Status403Forbidden, "auth.forbidden");
+        // All three or none -- a partial set would otherwise either crash on a NOT NULL
+        // violation or (worse) silently insert an empty placeholder value.
+        if (hasHinovaFields && (body.CodigoVoluntario is null || body.NomeHinova is null || body.CpfHinova is null))
+            throw new ApiProblem(StatusCodes.Status400BadRequest, "hinova.campos_incompletos");
 
         var id = Guid.CreateVersion7();
         var token = Tokens.New();
@@ -109,7 +113,7 @@ public static class UserEndpoints
             foreach (var roleId in roleIds.Distinct())
                 await tx.ExecuteAsync("insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @id, @roleId)", new { tenant, id, roleId });
 
-            if (linkingHinova)
+            if (hasHinovaFields)
             {
                 try
                 {

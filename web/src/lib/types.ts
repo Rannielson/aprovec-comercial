@@ -74,3 +74,5 @@ export type HinovaMapeamento = {
   cpfHinova: string;
   mappedAt: string;
 };
+
+export type UserNode = { id: string; name: string; email: string; status: string; supervisorId: string | null; roleIds: string[] };

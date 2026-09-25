@@ -484,4 +484,113 @@ public class UserTests(ApiFixture api)
         var me = await (await LoginAsync(s, "joao")).GetJsonAsync<MeDto>("/me");
         Assert.Contains(new PermissionDto("carteira.visualizar", "tenant"), me.Permissions);
     }
+
+    [Fact]
+    public async Task Creating_with_hinova_fields_links_the_mapping_in_the_same_request()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+
+        var response = await admin.PostAsync("/users", new
+        {
+            name = "Ana Paula Ferreira",
+            email = $"ana@{s.Slug}.local",
+            supervisorId = s.Joao,
+            codigoVoluntario = "101",
+            nomeHinova = "Ana Paula Ferreira",
+            cpfHinova = "11122233344",
+        });
+        await ApiClient.ExpectAsync(response, HttpStatusCode.Created);
+        var id = (await response.Content.ReadFromJsonAsync<CreatedDto>(ApiClient.Json))!.Id;
+
+        var mapped = await api.SqlScalarAsync<string>(
+            "select codigo_voluntario from hinova_voluntario_mapping where tenant_id = @tenant and user_id = @id",
+            new { tenant = s.TenantId, id });
+        Assert.Equal("101", mapped);
+    }
+
+    [Fact]
+    public async Task Duplicate_codigo_voluntario_returns_conflict_and_creates_nothing()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        await ApiClient.ExpectAsync(await admin.PostAsync("/users", new
+        {
+            name = "Ana Paula Ferreira",
+            email = $"ana@{s.Slug}.local",
+            codigoVoluntario = "101",
+            nomeHinova = "Ana Paula Ferreira",
+            cpfHinova = "11122233344",
+        }), HttpStatusCode.Created);
+
+        var response = await admin.PostAsync("/users", new
+        {
+            name = "Outra Pessoa",
+            email = $"outra@{s.Slug}.local",
+            codigoVoluntario = "101",
+            nomeHinova = "Ana Paula Ferreira",
+            cpfHinova = "11122233344",
+        });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("hinova.vinculo_duplicado", await ApiClient.CodeAsync(response));
+        var count = await api.SqlScalarAsync<int>(
+            "select count(*)::int from users where tenant_id = @tenant and email = @email",
+            new { tenant = s.TenantId, email = $"outra@{s.Slug}.local" });
+        Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public async Task Hinova_fields_without_integracoes_gerenciar_are_forbidden()
+    {
+        var s = await api.SeedAsync();
+        var recrutador = Guid.NewGuid();
+        await api.SqlAsync(
+            """
+            insert into roles (id, tenant_id, name) values (@recrutador, @tenant, 'Recrutador');
+            insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenant, @recrutador, 'usuarios.convidar', null);
+            insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @maria, @recrutador);
+            """,
+            new { recrutador, tenant = s.TenantId, maria = s.Maria });
+
+        var response = await (await LoginAsync(s, "maria")).PostAsync("/users", new
+        {
+            name = "Nova",
+            email = $"nova@{s.Slug}.local",
+            codigoVoluntario = "101",
+            nomeHinova = "Nova",
+            cpfHinova = "11122233344",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("auth.forbidden", await ApiClient.CodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Creating_without_hinova_fields_still_works_exactly_as_before()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+
+        var response = await admin.PostAsync("/users", new { name = "Sem Hinova", email = $"semhinova@{s.Slug}.local" });
+
+        await ApiClient.ExpectAsync(response, HttpStatusCode.Created);
+    }
+
+    [Fact]
+    public async Task Partial_hinova_fields_are_rejected_with_a_clean_error()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+
+        var response = await admin.PostAsync("/users", new
+        {
+            name = "Incompleto",
+            email = $"incompleto@{s.Slug}.local",
+            codigoVoluntario = "999",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("hinova.campos_incompletos", await ApiClient.CodeAsync(response));
+    }
 }

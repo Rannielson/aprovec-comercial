@@ -1,4 +1,4 @@
-export type IconName = 'grid' | 'wallet' | 'calendar' | 'logout' | 'search' | 'back' | 'chevron' | 'info' | 'settings' | 'link' | 'trash';
+export type IconName = 'grid' | 'wallet' | 'calendar' | 'logout' | 'search' | 'back' | 'chevron' | 'info' | 'settings' | 'link' | 'trash' | 'people' | 'shield' | 'plus';
 
 const svgProps = {
   viewBox: '0 0 24 24',
@@ -91,6 +91,26 @@ export function Icon({ name, className }: { name: IconName; className?: string }
           <path d="M10 11v6M14 11v6" />
           <path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" />
           <path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3" />
+        </svg>
+      );
+    case 'people':
+      return (
+        <svg className={cls} {...svgProps}>
+          <circle cx={9} cy={7} r={3} />
+          <path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 4v3" />
+        </svg>
+      );
+    case 'shield':
+      return (
+        <svg className={cls} {...svgProps}>
+          <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3" />
+          <path d="m8 12 3 3 5-6" />
+        </svg>
+      );
+    case 'plus':
+      return (
+        <svg className={cls} {...svgProps}>
+          <path d="M12 5v14M5 12h14" />
         </svg>
       );
   }

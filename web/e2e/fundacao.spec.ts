@@ -130,3 +130,71 @@ test('admin configura a Hinova e vincula um voluntário', async ({ page }) => {
   await vinculo.getByRole('button', { name: 'Desvincular' }).click();
   await expect(vinculo).not.toBeVisible();
 });
+
+test('admin monta uma árvore comissionada buscando um voluntário na Hinova', async ({ page }) => {
+  await login(page, tenant, 'admin@aprovec.local');
+
+  // Garante que as credenciais da Hinova estão salvas: o teste anterior já as salva nesta mesma
+  // execução, mas salvar de novo aqui é idempotente (mesmas credenciais de dev) e deixa este teste
+  // independente da ordem de execução do arquivo.
+  await page.getByRole('link', { name: 'Configurações' }).click();
+  await expect(page).toHaveURL(`${tenant}/configuracoes/integracoes`);
+  await page.getByLabel('Usuário', { exact: true }).fill('usuario-dev');
+  await page.getByLabel('Senha').fill('senha-dev');
+  await page.getByLabel('Token da SGA').fill('token-dev');
+  await page.getByRole('button', { name: 'Salvar credenciais' }).click();
+  await expect(page.getByText('Credenciais salvas.')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Árvore comissionada' }).click();
+  await expect(page).toHaveURL(`${tenant}/administracao/arvore`);
+
+  await page.getByRole('link', { name: 'Nova árvore' }).click();
+  await expect(page).toHaveURL(`${tenant}/administracao/arvore?adicionar=nova`);
+
+  await page.getByLabel('Buscar voluntário por nome').fill('Bruno');
+  await page.getByLabel('Buscar voluntário por nome').press('Enter');
+  // Escopado à classe do botão de resultado da busca (não a role/name genérico): sem isso, numa
+  // segunda execução o "Bruno Costa Lima" já criado no round anterior também aparece como um nó
+  // da pirâmide com um botão "Adicionar indicado a Bruno Costa Lima" (aria-label contém o mesmo
+  // texto), e o locator por nome vira ambíguo (strict mode).
+  await page.locator('.participante-option', { hasText: 'Bruno Costa Lima' }).click();
+
+  // O formulário da Hinova nem sempre traz e-mail: o admin sempre digita um, aqui como lá.
+  // E-mail único por execução: sem isso, uma segunda rodada contra o mesmo banco de dev
+  // persistente encontraria o e-mail já cadastrado (POST /users volta 409 users.email_taken,
+  // já que não existe exclusão de usuário, só desativação) — mesmo motivo pelo qual o teste de
+  // "plataforma cria empresa" usa um slug único por execução.
+  const brunoEmail = `bruno-${Date.now()}@e2e.aprovec.local`;
+  await page.getByLabel('E-mail').fill(brunoEmail);
+  await page.getByRole('button', { name: 'Confirmar' }).click();
+  await expect(page.getByText('Participante adicionado.')).toBeVisible();
+  // `.last()`: como não existe exclusão de usuário, uma execução anterior pode ter deixado outro
+  // cartão "Bruno Costa Lima" na árvore (só o vínculo com a Hinova é desfeito ao final, não o
+  // participante) — o recém-criado é o que importa aqui, e é o mais novo.
+  await expect(page.locator('.pyramid-node', { hasText: 'Bruno Costa Lima' }).last()).toBeVisible();
+
+  await page.getByRole('link', { name: 'Participantes' }).click();
+  await expect(page).toHaveURL(`${tenant}/administracao/participantes`);
+  // Por e-mail (único nesta execução), não por nome: outra execução pode ter deixado uma linha
+  // "Bruno Costa Lima" anterior na tabela, e o nome sozinho seria ambíguo.
+  const linha = page.getByRole('row', { name: brunoEmail });
+  await expect(linha).toBeVisible();
+  // Era uma nova raiz (sem indicador), então a coluna Supervisor mostra o rótulo de "sem vínculo".
+  await expect(linha).toContainText('Sem indicador');
+
+  // Desvincula o voluntário da Hinova no final para deixar o código 102 livre de novo: o e-mail
+  // único acima evita o 409 de e-mail duplicado, mas sozinho ainda deixaria "Bruno Costa Lima"
+  // marcado como já vinculado na busca (botão desabilitado) numa segunda execução — mesmo padrão
+  // de limpeza do teste "admin configura a Hinova e vincula um voluntário", acima.
+  await page.getByRole('link', { name: 'Configurações' }).click();
+  await expect(page).toHaveURL(`${tenant}/configuracoes/integracoes`);
+  // Escopado à seção "Vínculos atuais": sem query digitada, a seção "Mapeamento de voluntários"
+  // desta mesma página sempre lista os 3 voluntários fixos da Hinova (Ana Paula, Bruno, Carla),
+  // então uma linha "Bruno Costa Lima" também aparece ali — sem o escopo, o locator por nome vira
+  // ambíguo entre as duas seções.
+  const vinculosAtuais = page.locator('section', { has: page.getByRole('heading', { name: 'Vínculos atuais' }) });
+  const vinculo = vinculosAtuais.getByRole('row', { name: /Bruno Costa Lima/ });
+  await expect(vinculo).toBeVisible();
+  await vinculo.getByRole('button', { name: 'Desvincular' }).click();
+  await expect(vinculo).not.toBeVisible();
+});

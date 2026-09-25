@@ -14,7 +14,7 @@
 
 - No migration in this plan — every table already exists.
 - The tree has no depth limit. Commission stays limited to the direct supervisor (already correct, unchanged).
-- Adding someone to the tree is always "search the Hinova voluntário list, pick a result" — never a typed name/email form. Name and email come from the chosen Hinova voluntário, not from user input.
+- Adding someone to the tree is always "search the Hinova voluntário list, pick a result" for name/CPF/código — never a typed name form. The Hinova voluntário list frequently has no email on file (confirmed against real data), so email is the one field the admin always types at this step; without a real email the invite link has nowhere to go.
 - `POST /users` requires `estrutura.editar` when `supervisorId` is sent (existing rule, unchanged) and additionally requires `integracoes.gerenciar` when the new Hinova fields are sent.
 - The sidebar has no nesting support today (confirmed: flat list only) — the three new nav items (Árvore comissionada, Participantes, Remuneração) are three more flat entries in `NAV_ITEMS`, exactly like `settings` was added in the previous phase. Do not build a grouped/collapsible nav — out of scope.
 - "Remuneração" is a disabled ("Em breve") nav item only — no page, no endpoint, in this plan.
@@ -581,7 +581,7 @@ export async function criarParticipante(_: FormState, formData: FormData): Promi
 }
 ```
 
-Note: `email` is read from a hidden field the search result must supply — check Task 4 Step 3's `ParticipanteSearch` component for where it comes from. The Hinova voluntário response (`HinovaVoluntario` type) does NOT currently include an email field (only `codigo`, `nome`, `cpf`, `jaVinculado`, `vinculadoA`) — confirm this by reading `web/src/lib/types.ts`. Since `POST /users` requires a valid, non-empty email (`users.invalid_email` otherwise) and the Hinova voluntário list doesn't expose one in its current response shape, use a deterministic placeholder derived from the CPF for now: `${cpf}@pendente.aprovec.local` (documented limitation — a future phase can capture a real email during Hinova sync or a follow-up edit; do not block this task on adding email to the Hinova voluntário response, that is out of scope here). Build this placeholder client-side when submitting, not server-side.
+Note: `email` is a real, required field the admin TYPES after picking a search result — never a placeholder. A parallel investigation this session confirmed real Hinova voluntário records frequently have no email on file (`HinovaVoluntario` doesn't even carry the field — confirm by reading `web/src/lib/types.ts`: only `codigo`, `nome`, `cpf`, `jaVinculado`, `vinculadoA`), so a synthetic placeholder email would mean the invited consultant never receives a real set-password link and can never log in. `POST /users` already requires a valid, non-empty email (`users.invalid_email` otherwise) — this task relies on that existing validation, no new validation needed here.
 
 - [ ] **Step 3: Write the shared search component**
 
@@ -638,10 +638,14 @@ export function ParticipanteSearch({
           <input type="hidden" name="codigoVoluntario" value={selected.codigo} />
           <input type="hidden" name="nomeHinova" value={selected.nome} />
           <input type="hidden" name="cpfHinova" value={selected.cpf} />
-          <input type="hidden" name="email" value={`${selected.cpf.replace(/\D/g, '')}@pendente.aprovec.local`} />
           <p>
             Adicionar <strong>{selected.nome}</strong>?
           </p>
+          <label>
+            E-mail
+            <input type="email" name="email" required autoComplete="off" />
+          </label>
+          <p className="muted">A Hinova nem sempre tem e-mail cadastrado — confirme o e-mail correto, é para onde vai o convite de acesso.</p>
           {state.error && <p role="alert" className="error">{state.error}</p>}
           <div className="inline">
             <button type="submit" disabled={pending}>{pending ? 'Adicionando…' : 'Confirmar'}</button>
@@ -761,7 +765,7 @@ Read `web/e2e/fundacao.spec.ts` in full — reuse its `login()` helper and its e
 
 - [ ] **Step 2: Add the scenario**
 
-Add a new `test(...)` after the existing "admin configura a Hinova e vincula um voluntário" test. It needs Hinova credentials configured first (reuse the same save-credentials steps from that existing test, or extract a small helper if the file's style supports it — your call). Then: navigate to Árvore comissionada, click "+ Nova árvore", search "Bruno" (the `DevFakeHinovaClient` fixture has "Bruno Costa Lima", codigo 102 — confirm this against `src/Recorrencia.Api/Integracoes/DevFakeHinovaClient.cs`), select the result, confirm, assert "Participante adicionado." appears and the new card shows "Bruno Costa Lima" in the pyramid. Then navigate to Participantes, confirm the same person appears in the table with "Sem supervisor".
+Add a new `test(...)` after the existing "admin configura a Hinova e vincula um voluntário" test. It needs Hinova credentials configured first (reuse the same save-credentials steps from that existing test, or extract a small helper if the file's style supports it — your call). Then: navigate to Árvore comissionada, click "+ Nova árvore", search "Bruno" (the `DevFakeHinovaClient` fixture has "Bruno Costa Lima", codigo 102 — confirm this against `src/Recorrencia.Api/Integracoes/DevFakeHinovaClient.cs`), select the result, fill the required E-mail field (e.g. `bruno@e2e.aprovec.local`) — Task 4's form requires this, the admin always types it — confirm, assert "Participante adicionado." appears and the new card shows "Bruno Costa Lima" in the pyramid. Then navigate to Participantes, confirm the same person appears in the table with "Sem supervisor".
 
 - [ ] **Step 3: Run the E2E suite**
 

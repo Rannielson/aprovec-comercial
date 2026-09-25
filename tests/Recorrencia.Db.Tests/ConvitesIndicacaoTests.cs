@@ -11,24 +11,31 @@ public class ConvitesIndicacaoTests(PostgresFixture db)
     [Fact]
     public async Task Anyone_can_insert_a_solicitacao_without_being_a_real_user()
     {
-        var tenant = await _seed.TenantAsync();
+        var (tenant, admin) = await _seed.ProvisionAsync();
+        await ActivateAsync(admin);
         var indicador = await _seed.UserAsync(tenant, "Indicador");
+        var id = Guid.NewGuid();
 
         // "Sem usuário" = a mesma chamada que o backend faz via db.InTenantAsync(tenant, null, ...)
-        // para o fluxo público: tenant setado, app.current_user_id() nulo.
-        var count = await db.AsAppUserAsync(tenant, null, async (c, tx) =>
-        {
-            await c.ExecuteAsync(
-                """
-                insert into solicitacoes_cadastro
-                  (tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, bairro, cidade, estado)
-                values (@tenant, @indicador, 'Fulano', '11111111111', '11999999999', 'fulano@teste.local',
-                        '30000000', 'Rua X', '1', 'Bairro', 'Cidade', 'UF')
-                """,
-                new { tenant, indicador }, tx);
-            return await c.ExecuteScalarAsync<int>(
-                "select count(*) from solicitacoes_cadastro where tenant_id = @tenant", new { tenant }, tx);
-        });
+        // para o fluxo público: tenant setado, app.current_user_id() nulo. O id é gerado aqui em
+        // C# e inserido explicitamente -- nunca via "returning", que sob RLS é filtrado pelas
+        // policies de SELECT da tabela: uma sessão anônima sem nenhuma policy de select anônimo
+        // não veria a linha de volta (RETURNING de zero linhas visíveis, não um erro).
+        await db.AsAppUserAsync(tenant, null, (c, tx) => c.ExecuteAsync(
+            """
+            insert into solicitacoes_cadastro
+              (id, tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, bairro, cidade, estado)
+            values (@id, @tenant, @indicador, 'Fulano', '11111111111', '11999999999', 'fulano@teste.local',
+                    '30000000', 'Rua X', '1', 'Bairro', 'Cidade', 'UF')
+            """,
+            new { id, tenant, indicador }, tx));
+
+        // Confirma que a linha existe de verdade lendo como admin (que já tem select legítimo
+        // via solicitacoes_cadastro_select_admin) -- não como o próprio anônimo: o fluxo público
+        // nunca precisa ler solicitacoes_cadastro de volta, então a tabela não tem (nem deveria
+        // ter) uma policy de select anônimo, que exporia CPF/endereço/e-mail de todo mundo no tenant.
+        var count = await db.AsAppUserAsync(tenant, admin, (c, tx) =>
+            c.ExecuteScalarAsync<int>("select count(*) from solicitacoes_cadastro where id = @id", new { id }, tx));
         Assert.Equal(1, count);
     }
 
@@ -61,15 +68,15 @@ public class ConvitesIndicacaoTests(PostgresFixture db)
         var (tenant, admin) = await _seed.ProvisionAsync();
         await ActivateAsync(admin);
         var indicador = await _seed.UserAsync(tenant, "Indicador");
-        var id = await db.AsAppUserAsync(tenant, null, (c, tx) => c.QuerySingleAsync<Guid>(
+        var id = Guid.NewGuid();
+        await db.AsAppUserAsync(tenant, null, (c, tx) => c.ExecuteAsync(
             """
             insert into solicitacoes_cadastro
-              (tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, bairro, cidade, estado)
-            values (@tenant, @indicador, 'Fulano', '11111111111', '11999999999', 'fulano@teste.local',
+              (id, tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, bairro, cidade, estado)
+            values (@id, @tenant, @indicador, 'Fulano', '11111111111', '11999999999', 'fulano@teste.local',
                     '30000000', 'Rua X', '1', 'Bairro', 'Cidade', 'UF')
-            returning id
             """,
-            new { tenant, indicador }, tx));
+            new { id, tenant, indicador }, tx));
 
         var count = await db.AsAppUserAsync(tenant, admin, (c, tx) =>
             c.ExecuteScalarAsync<int>("select count(*) from solicitacoes_cadastro where tenant_id = @tenant", new { tenant }, tx));
@@ -86,15 +93,15 @@ public class ConvitesIndicacaoTests(PostgresFixture db)
         var (tenant, admin) = await _seed.ProvisionAsync();
         await ActivateAsync(admin);
         var indicador = await _seed.UserAsync(tenant, "Indicador");
-        var id = await db.AsAppUserAsync(tenant, null, (c, tx) => c.QuerySingleAsync<Guid>(
+        var id = Guid.NewGuid();
+        await db.AsAppUserAsync(tenant, null, (c, tx) => c.ExecuteAsync(
             """
             insert into solicitacoes_cadastro
-              (tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, bairro, cidade, estado)
-            values (@tenant, @indicador, 'Fulano', '11111111111', '11999999999', 'fulano@teste.local',
+              (id, tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, bairro, cidade, estado)
+            values (@id, @tenant, @indicador, 'Fulano', '11111111111', '11999999999', 'fulano@teste.local',
                     '30000000', 'Rua X', '1', 'Bairro', 'Cidade', 'UF')
-            returning id
             """,
-            new { tenant, indicador }, tx));
+            new { id, tenant, indicador }, tx));
 
         var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(tenant, admin, (c, tx) => c.ExecuteAsync(
             "update solicitacoes_cadastro set status = 'aprovado', resolvido_em = now(), resolvido_por = @admin where id = @id",

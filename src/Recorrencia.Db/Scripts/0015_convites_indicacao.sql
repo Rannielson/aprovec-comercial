@@ -58,8 +58,6 @@ create policy solicitacoes_cadastro_insert_publico on solicitacoes_cadastro for 
   with check (true);
 -- Postgres's CREATE POLICY takes exactly one command per FOR clause (no "for select, update"
 -- comma list) -- select and update need their own policies, even though the condition is identical.
-create policy solicitacoes_cadastro_select_public on solicitacoes_cadastro for select to app_user
-  using (app.current_user_id() is null);
 create policy solicitacoes_cadastro_select_admin on solicitacoes_cadastro for select to app_user
   using ((select app.has_permission('usuarios.convidar')) and (select app.has_permission('integracoes.gerenciar')));
 create policy solicitacoes_cadastro_update_admin on solicitacoes_cadastro for update to app_user

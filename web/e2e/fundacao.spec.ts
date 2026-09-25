@@ -130,3 +130,41 @@ test('admin configura a Hinova e vincula um voluntário', async ({ page }) => {
   await vinculo.getByRole('button', { name: 'Desvincular' }).click();
   await expect(vinculo).not.toBeVisible();
 });
+
+test('admin monta uma árvore comissionada buscando um voluntário na Hinova', async ({ page }) => {
+  await login(page, tenant, 'admin@aprovec.local');
+
+  // Garante que as credenciais da Hinova estão salvas: o teste anterior já as salva nesta mesma
+  // execução, mas salvar de novo aqui é idempotente (mesmas credenciais de dev) e deixa este teste
+  // independente da ordem de execução do arquivo.
+  await page.getByRole('link', { name: 'Configurações' }).click();
+  await expect(page).toHaveURL(`${tenant}/configuracoes/integracoes`);
+  await page.getByLabel('Usuário', { exact: true }).fill('usuario-dev');
+  await page.getByLabel('Senha').fill('senha-dev');
+  await page.getByLabel('Token da SGA').fill('token-dev');
+  await page.getByRole('button', { name: 'Salvar credenciais' }).click();
+  await expect(page.getByText('Credenciais salvas.')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Árvore comissionada' }).click();
+  await expect(page).toHaveURL(`${tenant}/administracao/arvore`);
+
+  await page.getByRole('link', { name: 'Nova árvore' }).click();
+  await expect(page).toHaveURL(`${tenant}/administracao/arvore?adicionar=nova`);
+
+  await page.getByLabel('Buscar voluntário por nome').fill('Bruno');
+  await page.getByLabel('Buscar voluntário por nome').press('Enter');
+  await page.getByRole('button', { name: /Bruno Costa Lima/ }).click();
+
+  // O formulário da Hinova nem sempre traz e-mail: o admin sempre digita um, aqui como lá.
+  await page.getByLabel('E-mail').fill('bruno@e2e.aprovec.local');
+  await page.getByRole('button', { name: 'Confirmar' }).click();
+  await expect(page.getByText('Participante adicionado.')).toBeVisible();
+  await expect(page.locator('.pyramid-node', { hasText: 'Bruno Costa Lima' })).toBeVisible();
+
+  await page.getByRole('link', { name: 'Participantes' }).click();
+  await expect(page).toHaveURL(`${tenant}/administracao/participantes`);
+  const linha = page.getByRole('row', { name: /Bruno Costa Lima/ });
+  await expect(linha).toBeVisible();
+  // Era uma nova raiz (sem indicador), então a coluna Supervisor mostra o rótulo de "sem vínculo".
+  await expect(linha).toContainText('Sem indicador');
+});

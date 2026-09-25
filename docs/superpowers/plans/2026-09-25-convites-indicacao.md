@@ -1297,6 +1297,11 @@ Adicione à mesma classe `SolicitacaoCadastroTests` (Task 5):
         var (id, email) = await SubmitPendingAsync(s, token, "99988877766");
 
         api.Hinova.ProximoCodigoCadastrado = "555";
+        // AprovarAsync also looks up the INDICADOR (código "311", from LinkTokenAsync above) via
+        // BuscarVoluntarioAsync, to read their cooperativa codes for CadastrarVoluntarioRequest --
+        // without this, the fake returns null for that lookup and approval 409s with
+        // solicitacao.indicador_sem_hinova before ever reaching CadastrarVoluntarioAsync.
+        api.Hinova.BuscarPorChave["311"] = new HinovaVoluntarioDetalhe("311", "João Silva", "11111111111", ["1"]);
         var admin = api.Client(s.Slug);
         await admin.LoginAsync($"admin@{s.Slug}.local", ApiFixture.Password);
         // HinovaAuth.GetTokenUsuarioAsync (Task 2) requires a saved hinova_credenciais row before

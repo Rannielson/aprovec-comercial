@@ -5,6 +5,7 @@ import { Icon } from '../../components/app-icon';
 import { formatDate } from '@/lib/format';
 import { messageFor } from '@/lib/errors';
 import type { HinovaCredenciaisStatus, HinovaMapeamento, HinovaVoluntario, Me, UserSummary } from '@/lib/types';
+import { BuscarConsultores } from './buscar-consultores';
 import { CredenciaisForm } from './credenciais-form';
 import { DesvincularForm, VincularForm } from './mapeamento-form';
 
@@ -69,7 +70,10 @@ export default async function IntegracoesPage({
 
         {status.configurado && (
           <section className="card">
-            <h2>Mapeamento de voluntários</h2>
+            <div className="topbar">
+              <h2>Mapeamento de voluntários</h2>
+              <BuscarConsultores voluntarios={voluntarios} />
+            </div>
             <form method="get" className="search-field">
               <Icon name="search" />
               <input type="search" name="query" placeholder="Buscar por nome" defaultValue={query ?? ''} aria-label="Buscar voluntário por nome" />

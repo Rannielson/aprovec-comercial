@@ -56,6 +56,14 @@ export function previousCompetencia(competencia: string): string {
   return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/** Masks a CPF down to its last 2 digits (e.g. "11122233344" -> "***.***.***-44"), for previewing
+ * a person's identity without displaying their full document number. */
+export function maskCpf(cpf: string): string {
+  const digits = cpf.replace(/\D/g, '');
+  if (digits.length !== 11) return '***.***.***-**';
+  return `***.***.***-${digits.slice(9)}`;
+}
+
 export function statusBadgeClass(status: string): string {
   switch (status) {
     case 'apuracao':

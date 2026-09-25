@@ -66,7 +66,15 @@ export type UserSummary = { id: string; name: string; email: string; status: str
 
 export type HinovaCredenciaisStatus = { configurado: boolean; atualizadoEm: string | null; atualizadoPor: string | null };
 
-export type HinovaVoluntario = { codigo: string; nome: string; cpf: string; jaVinculado: boolean; vinculadoA: string | null };
+export type HinovaVoluntario = {
+  codigo: string;
+  nome: string;
+  cpf: string;
+  telefone: string | null;
+  cooperativas: string[];
+  jaVinculado: boolean;
+  vinculadoA: string | null;
+};
 
 export type HinovaMapeamento = {
   userId: string;

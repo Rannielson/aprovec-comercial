@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { currentCompetencia, formatCompetencia, formatDate, formatMoney, formatPercent, isCompetencia, previousCompetencia, ruleLabel, statusBadgeClass } from './format';
+import { currentCompetencia, formatCompetencia, formatDate, formatMoney, formatPercent, isCompetencia, maskCpf, previousCompetencia, ruleLabel, statusBadgeClass } from './format';
 
 describe('format', () => {
   it('formata dinheiro em reais', () => {
@@ -49,5 +49,11 @@ describe('format', () => {
   it('formata datas no padrão brasileiro', () => {
     expect(formatDate('2026-09-05')).toBe('05/09/2026');
     expect(formatDate('2026-01-20')).toBe('20/01/2026');
+  });
+
+  it('mascara o CPF mantendo só os 2 últimos dígitos', () => {
+    expect(maskCpf('11122233344')).toBe('***.***.***-44');
+    expect(maskCpf('111.222.333-44')).toBe('***.***.***-44');
+    expect(maskCpf('123')).toBe('***.***.***-**');
   });
 });

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { ApiError, apiFetch } from '@/lib/api';
 import type { TenantInfo } from '@/lib/types';
+import { AuthBrandPanel } from '../components/auth-brand-panel';
 import { LoginForm } from './login-form';
 
 export default async function LoginPage() {
@@ -13,12 +14,16 @@ export default async function LoginPage() {
   }
 
   return (
-    <main className="auth">
-      <section className="card">
-        <p className="eyebrow">{tenant.platform ? 'Plataforma' : 'Recorrência comercial'}</p>
-        <h1>{tenant.name}</h1>
-        <LoginForm platform={tenant.platform} />
+    <main className="login-shell">
+      <section className="login-panel">
+        <div className="login-card">
+          <p className="eyebrow">{tenant.platform ? 'Plataforma' : 'Acesso'}</p>
+          <h1>{tenant.name}</h1>
+          <p className="muted">Entre com seu e-mail e senha para acessar o painel.</p>
+          <LoginForm platform={tenant.platform} />
+        </div>
       </section>
+      <AuthBrandPanel />
     </main>
   );
 }

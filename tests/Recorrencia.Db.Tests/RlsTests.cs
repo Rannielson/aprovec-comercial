@@ -285,7 +285,7 @@ public class RlsTests(PostgresFixture db)
     {
         var s = await RlsScenario.CreateAsync(db);
 
-        var inviterRole = await _seed.RoleAsync(s.TenantA, "Convite apenas", ("usuarios.convidar", null));
+        var inviterRole = await _seed.RoleAsync(s.TenantA, "Convite apenas", ("usuarios.convidar", null), ("estrutura.visualizar", "tenant"));
         var inviter = await _seed.UserAsync(s.TenantA, "Invitador");
         await _seed.AssignRoleAsync(s.TenantA, inviter, inviterRole);
 

@@ -296,4 +296,32 @@ public class AuthFunctionTests(PostgresFixture db)
         Assert.Null(s.TenantId);
         Assert.Null(s.UserId);
     }
+
+    [Fact]
+    public async Task Set_password_admin_activates_a_pending_user()
+    {
+        var t = await _seed.TenantAsync();
+        var u = await _seed.UserAsync(t, "Convidado", status: "convidado");
+
+        await db.AsAppUserAsync(t, null, (c, tx) => c.ExecuteAsync(
+            "select app.set_password_admin(@user, @hash)", new { user = u, hash = "novo-hash" }, tx));
+
+        Assert.Equal("novo-hash", await _seed.ScalarAsync<string>("select password_hash from users where id = @u", new { u }));
+        Assert.Equal("ativo", await _seed.ScalarAsync<string>("select status from users where id = @u", new { u }));
+    }
+
+    [Fact]
+    public async Task Set_password_admin_revokes_existing_sessions()
+    {
+        var t = await _seed.TenantAsync();
+        var u = await _seed.UserAsync(t, "Ativa", status: "ativo");
+        await db.AsAppUserAsync(t, u, (c, tx) => c.ExecuteScalarAsync<Guid>(
+            "select app.create_session(@hash, @tenant, @user, 3600, 86400, @ip, @ua)",
+            new { hash = H("tok-set-password-admin"), tenant = t, user = u, ip = "203.0.113.7", ua = "teste" }, tx));
+
+        await db.AsAppUserAsync(t, null, (c, tx) => c.ExecuteAsync(
+            "select app.set_password_admin(@user, @hash)", new { user = u, hash = "outro-hash" }, tx));
+
+        Assert.Equal(0, await _seed.ScalarAsync<int>("select count(*) from sessions where user_id = @u", new { u }));
+    }
 }

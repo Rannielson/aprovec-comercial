@@ -70,7 +70,12 @@ export function ParticipanteSearch({
             E-mail
             <input type="email" name="email" required autoComplete="off" />
           </label>
+          <label>
+            Senha inicial
+            <input type="password" name="password" required minLength={10} maxLength={128} autoComplete="new-password" />
+          </label>
           <p className="muted">A Hinova nem sempre tem e-mail cadastrado — confirme o e-mail correto, é para onde vai o convite de acesso.</p>
+          <p className="muted">A senha vale para o primeiro acesso — combine com {selected.nome} por fora (WhatsApp, telefone). Mínimo de 10 caracteres.</p>
           {state.error && <p role="alert" className="error">{state.error}</p>}
           <div className="inline">
             <button type="submit" disabled={pending}>{pending ? 'Adicionando…' : 'Confirmar'}</button>

@@ -30,6 +30,7 @@ export async function criarParticipante(_: FormState, formData: FormData): Promi
       body: {
         name: String(formData.get('nomeHinova') ?? ''),
         email: String(formData.get('email') ?? ''),
+        password: String(formData.get('password') ?? ''),
         supervisorId: supervisorId || undefined,
         codigoVoluntario: String(formData.get('codigoVoluntario') ?? ''),
         nomeHinova: String(formData.get('nomeHinova') ?? ''),

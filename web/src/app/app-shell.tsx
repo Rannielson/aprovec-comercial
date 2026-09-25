@@ -14,9 +14,20 @@ const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string |
   { id: 'remuneracao', icon: 'shield', label: 'Remuneração', href: null },
 ];
 
+// The mockup gives Administrador its own exclusive console (just these 3 items), not the union of
+// every permission-gated item -- Administrador holds every permission, so the permission-based
+// filter below would otherwise show them everything (Minha carteira, Fechamento, etc. included).
+const ADMIN_ONLY_NAV_IDS: ActivePage[] = ['arvore', 'participantes', 'remuneracao'];
+
 export function AppShell({ me, active, children }: { me: Me; active: ActivePage; children: React.ReactNode }) {
   const initials = me.name.split(' ').slice(0, 2).map((part) => part[0]).join('');
   const activeItem = NAV_ITEMS.find((item) => item.id === active);
+  // Only Administrador (and nothing else) gets the exclusive admin console; anyone holding a
+  // custom role alongside -- or any other/no template -- keeps the regular permission-based menu.
+  const isAdminOnly = me.roleTemplates.length === 1 && me.roleTemplates[0] === 'administrador';
+  const visibleItems = isAdminOnly
+    ? NAV_ITEMS.filter((item) => ADMIN_ONLY_NAV_IDS.includes(item.id))
+    : NAV_ITEMS.filter((item) => !item.permission || me.permissions.some((p) => p.key === item.permission));
 
   return (
     <div className="app-shell">
@@ -26,7 +37,7 @@ export function AppShell({ me, active, children }: { me: Me; active: ActivePage;
           <div className="brand-product">Recorrência comercial</div>
         </div>
         <nav aria-label="Navegação principal">
-          {NAV_ITEMS.filter((item) => !item.permission || me.permissions.some((p) => p.key === item.permission)).map((item) =>
+          {visibleItems.map((item) =>
             item.href ? (
               <Link
                 key={item.id}

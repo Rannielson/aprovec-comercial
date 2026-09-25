@@ -264,4 +264,18 @@ public class RlsTests(PostgresFixture db)
             "update roles set tenant_id = @b where id = @r", new { b = s.TenantB, r = roleId }, t)));
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, ex.SqlState);
     }
+
+    [Fact]
+    public async Task User_with_only_usuarios_convidar_can_update_users()
+    {
+        var s = await RlsScenario.CreateAsync(db);
+
+        var inviterRole = await _seed.RoleAsync(s.TenantA, "Convite apenas", ("usuarios.convidar", null));
+        var inviter = await _seed.UserAsync(s.TenantA, "Invitador");
+        await _seed.AssignRoleAsync(s.TenantA, inviter, inviterRole);
+
+        var affected = await db.AsAppUserAsync(s.TenantA, inviter, (c, t) => c.ExecuteAsync(
+            "update users set name = 'Alterado pelo invitador' where id = @m", new { m = s.Maria }, t));
+        Assert.Equal(1, affected);
+    }
 }

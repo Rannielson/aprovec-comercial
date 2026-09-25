@@ -230,6 +230,10 @@ test('indicação: gerar link, preencher formulário, aprovar e logar', async ({
   await page.getByLabel('Celular').fill('11999990000');
   await page.getByLabel('E-mail').fill(email);
   await page.getByLabel('CEP').fill('01310-100');
+  // Preenchido explicitamente em vez de depender do autopreenchimento via ViaCEP (que só chega
+  // depois do blur do CEP, com uma chamada de rede real): sem isso o campo obrigatório "Endereço"
+  // fica vazio e a validação nativa do navegador bloqueia o clique em "Solicitar cadastro".
+  await page.getByLabel('Endereço').fill('Avenida Paulista');
   await page.getByLabel('Número').fill('100');
   await page.getByLabel('Bairro').fill('Bela Vista');
   await page.getByLabel('Cidade').fill('São Paulo');
@@ -261,7 +265,10 @@ test('indicação: gerar link, preencher formulário, aprovar e logar', async ({
   await expect(page.getByRole('complementary').getByText('Indicado E2E')).toBeVisible();
 
   // Limpeza: desvincula Pedro da Hinova para deixar o voluntário 103 livre de novo (mesmo padrão
-  // de limpeza dos outros testes deste arquivo que usam o banco de dev persistente).
+  // de limpeza dos outros testes deste arquivo que usam o banco de dev persistente). A sessão
+  // atual é a do indicado recém-logado (não-admin), então é preciso logar como admin de novo
+  // antes de visitar /configuracoes/integracoes -- página bloqueada por `integracoes.gerenciar`.
+  await login(page, tenant, 'admin@aprovec.local');
   await page.goto(`${tenant}/configuracoes/integracoes`);
   const vinculosAtuaisPedro = page.locator('section', { has: page.getByRole('heading', { name: 'Vínculos atuais' }) });
   const vinculoPedro = vinculosAtuaisPedro.getByRole('row', { name: /Pedro Santos/ });

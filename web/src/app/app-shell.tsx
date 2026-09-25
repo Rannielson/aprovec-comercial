@@ -4,13 +4,16 @@ import type { Me } from '@/lib/types';
 
 export type ActivePage = 'overview' | 'wallet' | 'commissions' | 'closing' | 'settings' | 'arvore' | 'participantes' | 'remuneracao';
 
-const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string | null; permission?: string }[] = [
+const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string | null; permission?: string; minScope?: string }[] = [
   { id: 'overview', icon: 'grid', label: 'Minha recorrência', href: '/' },
   { id: 'wallet', icon: 'wallet', label: 'Minha carteira', href: '/carteira' },
   { id: 'commissions', icon: 'percent', label: 'Comissões', href: '/comissoes' },
   { id: 'closing', icon: 'calendar', label: 'Fechamento', href: '/fechamento' },
   { id: 'settings', icon: 'settings', label: 'Configurações', href: '/configuracoes/integracoes', permission: 'integracoes.gerenciar' },
-  { id: 'arvore', icon: 'people', label: 'Árvore comissionada', href: '/administracao/arvore', permission: 'estrutura.visualizar' },
+  // Consultor also holds estrutura.visualizar (scope 'direct', per 0006_rbac_catalog.sql) so they
+  // can see their own referrals, but the tree visualization itself is a whole-base view meant for
+  // Coordenador ('tenant' scope) and Administrador -- Consultor gets Participantes only.
+  { id: 'arvore', icon: 'people', label: 'Árvore comissionada', href: '/administracao/arvore', permission: 'estrutura.visualizar', minScope: 'tenant' },
   { id: 'participantes', icon: 'people', label: 'Participantes', href: '/administracao/participantes', permission: 'estrutura.visualizar' },
   { id: 'remuneracao', icon: 'shield', label: 'Remuneração', href: null },
 ];
@@ -33,7 +36,11 @@ export function AppShell({ me, active, children }: { me: Me; active: ActivePage;
   const isAdminOnly = me.roleTemplates.length === 1 && me.roleTemplates[0] === 'administrador';
   const visibleItems = isAdminOnly
     ? NAV_ITEMS.filter((item) => ADMIN_ONLY_NAV_IDS.includes(item.id))
-    : NAV_ITEMS.filter((item) => !item.permission || me.permissions.some((p) => p.key === item.permission));
+    : NAV_ITEMS.filter(
+        (item) =>
+          !item.permission ||
+          me.permissions.some((p) => p.key === item.permission && (!item.minScope || p.scope === item.minScope)),
+      );
 
   return (
     <div className="app-shell">

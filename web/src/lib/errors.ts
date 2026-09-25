@@ -18,6 +18,11 @@ const messages: Record<string, string> = {
   'hinova.nao_configurado': 'Configure as credenciais da Hinova antes de buscar voluntários.',
   'hinova.vinculo_duplicado': 'Esse usuário ou esse voluntário já está vinculado a outro registro.',
   'hinova.campos_incompletos': 'Preencha todos os dados do voluntário antes de confirmar.',
+  'fechamento.competencia_not_closed': 'Só é possível confirmar competências já encerradas.',
+  'fechamento.already_confirmed': 'Essa competência já foi confirmada.',
+  'fechamento.requires_full_visibility': 'Você não tem permissão para confirmar o fechamento.',
+  'fechamento.invalid_transition': 'Confirme a competência antes de provisionar.',
+  'fechamento.not_found': 'Fechamento não encontrado para essa competência.',
   'internal.error': 'Não foi possível falar com o servidor. Tente novamente em instantes.',
 };
 

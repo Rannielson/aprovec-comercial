@@ -85,6 +85,45 @@ describe('buildEstrutura', () => {
     expect(result.rates.referral).toBe(0.02);
   });
 
+  it('exposes every upline level separately, not just level 1, with the own amount already computed', () => {
+    // ana -> bia -> caio: ana earns level-1 supervision on bia AND level-2 on caio, at the same
+    // rate here but from a distinct rule/base each -- a single combined "referral" figure would
+    // conflate the two (this was a real bug: it showed the total non-own commission next to a
+    // base that only covered the direct report).
+    const result = buildEstrutura(
+      [user('ana'), user('bia', 'ana'), user('caio', 'bia')],
+      commissions([
+        {
+          userId: 'ana',
+          name: 'ANA',
+          total: 1700,
+          byRule: [rule('own', 0.07, 20000), rule('upline', 0.02, 10000, 1), rule('upline', 0.02, 5000, 2)],
+        },
+      ]),
+      ADMIN,
+    );
+    const ana = result.sellers.find((s) => s.id === 'ana')!;
+    expect(ana.ownAmount).toBe(1400);
+    expect(ana.uplineRules).toEqual([
+      { ruleType: 'upline', level: 1, groupId: null, groupName: null, rate: 0.02, base: 10000, amount: 200 },
+      { ruleType: 'upline', level: 2, groupId: null, groupName: null, rate: 0.02, base: 5000, amount: 100 },
+    ]);
+    // The two levels together account for the rest of the total (1700 = 1400 + 200 + 100).
+    const uplineTotal = ana.uplineRules.reduce((sum, r) => sum + r.amount, 0);
+    expect(ana.ownAmount + uplineTotal).toBe(ana.comissao);
+  });
+
+  it('hides uplineRules (not just recebido/comissao) for a person outside the viewer\'s scope', () => {
+    const result = buildEstrutura(
+      [user('ana'), user('bia', 'ana')],
+      commissions([{ userId: 'bia', name: 'BIA', total: 70, byRule: [rule('own', 0.07, 1000)] }]),
+      { id: 'someone-else', commissionScope: 'own' },
+    );
+    const bia = result.sellers.find((s) => s.id === 'bia')!;
+    expect(bia.valuesHidden).toBe(true);
+    expect(bia.uplineRules).toEqual([]);
+  });
+
   it('excludes desligados and re-roots anyone whose supervisor is outside the pyramid', () => {
     const result = buildEstrutura(
       [user('gestor'), user('saiu', null, 'desligado'), user('ana', 'gestor'), user('bia', 'saiu'), user('caio', 'ana')],

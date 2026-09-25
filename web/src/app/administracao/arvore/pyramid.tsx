@@ -9,6 +9,7 @@ import type { HinovaVoluntario } from '@/lib/types';
 import { ParticipanteSearch } from '../participante-search';
 import { NOVA_ARVORE } from './constants';
 import type { Gestor, Participante } from './estrutura';
+import { PersonDetail, type PersonDetailTarget } from './person-detail';
 
 const MIN_ZOOM = 0.4;
 const MAX_ZOOM = 1.4;
@@ -39,6 +40,7 @@ export function Pyramid({
   voluntarios,
   searchQuery,
   searchError,
+  competencia,
 }: {
   layout: TreeLayout;
   people: Record<string, Participante>;
@@ -57,10 +59,13 @@ export function Pyramid({
   voluntarios: HinovaVoluntario[];
   searchQuery: string;
   searchError: string | null;
+  /** Competência shown in the "Composição da comissão" detail drawer's subtitle. */
+  competencia: string;
 }) {
   const router = useRouter();
   const [zoom, setZoom] = useState(1);
   const [target, setTarget] = useState<string | null>(initialTarget);
+  const [detail, setDetail] = useState<PersonDetailTarget | null>(null);
   const [panning, setPanning] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -320,7 +325,14 @@ export function Pyramid({
               </div>
             ) : (
               gestores.map((g, i) => (
-                <div key={g.id} className="pyramid-manager" style={{ left: slotX(i), top: manager.y }}>
+                <button
+                  key={g.id}
+                  type="button"
+                  className="pyramid-manager"
+                  style={{ left: slotX(i), top: manager.y }}
+                  aria-label={`Ver composição da comissão de ${g.name}`}
+                  onClick={() => setDetail({ kind: 'gestor', id: g.id })}
+                >
                   <span className="pyramid-manager-avatar">
                     <Icon name="shield" />
                   </span>
@@ -330,7 +342,7 @@ export function Pyramid({
                     <small>Todas as árvores · {money(g.recebido)} recebidos</small>
                   </div>
                   <b>{money(g.comissao)}</b>
-                </div>
+                </button>
               ))
             )}
 
@@ -339,7 +351,12 @@ export function Pyramid({
               const open = target === node.id;
               return (
                 <div key={node.id} className="pyramid-node" data-person-id={node.id} style={{ left: node.x, top: node.y }}>
-                  <div className="pyramid-person">
+                  <button
+                    type="button"
+                    className="pyramid-person"
+                    aria-label={`Ver composição da comissão de ${p.name}`}
+                    onClick={() => setDetail({ kind: 'seller', id: node.id })}
+                  >
                     <span className="pyramid-person-top">
                       <span className="avatar network-avatar">{initials(p.name)}</span>
                       <span>
@@ -356,7 +373,7 @@ export function Pyramid({
                       <span>Comissão total</span>
                       <strong>{p.valuesHidden ? '—' : money(p.comissao)}</strong>
                     </span>
-                  </div>
+                  </button>
                   <div className="pyramid-node-actions">
                     {canAddChild ? (
                       <button
@@ -440,6 +457,21 @@ export function Pyramid({
           )}
         </div>
       </div>
+      {detail && (
+        <PersonDetail
+          target={detail}
+          people={people}
+          gestores={gestores}
+          competencia={competencia}
+          showValues={showValues}
+          canAddChild={canAddChild}
+          onClose={() => setDetail(null)}
+          onAddIndicado={(personId) => {
+            setDetail(null);
+            setTarget(personId);
+          }}
+        />
+      )}
     </>
   );
 }

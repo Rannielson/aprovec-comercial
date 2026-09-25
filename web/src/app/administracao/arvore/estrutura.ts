@@ -1,4 +1,4 @@
-import type { BeneficiaryCommission, Commissions, UserNode } from '@/lib/types';
+import type { BeneficiaryCommission, Commissions, RuleTotal, UserNode } from '@/lib/types';
 
 /** A seller in the commission pyramid, with this competência's display values. */
 export type Participante = {
@@ -17,10 +17,18 @@ export type Participante = {
   rate: number | null;
   /** Base of the `own` rule — what was received in their wallet. 0 without an `own` entry. */
   recebido: number;
+  /** Own-rule commission amount, as computed by the backend (base × rate, already rounded). */
+  ownAmount: number;
   /** Everything they earned this competência (own + upline). 0 when absent from the commissions response. */
   comissao: number;
   /** Rate they earn on a direct indicado's wallet (their level-1 `upline` entry), when known. */
   referralRate: number | null;
+  /**
+   * Every `upline` rule this person has an entry for this competência, one per supervision level --
+   * the plan isn't capped at 1 level (this tenant's active plan has 2), so a beneficiary can hold
+   * several. Empty when hidden by scope or when they have no supervision commission at all.
+   */
+  uplineRules: RuleTotal[];
   /**
    * True when the viewer's `comissoes.visualizar` scope doesn't cover this person — recebido/comissao/rate
    * are 0/null placeholders, not real zeros.
@@ -106,6 +114,7 @@ export function buildEstrutura(
   const sellers = sellerUsers.map((u): Participante => {
     const b = byUser.get(u.id);
     const own = b?.byRule.find((r) => r.ruleType === 'own');
+    const hidden = visible !== null && !visible.has(u.id);
     return {
       id: u.id,
       name: u.name,
@@ -117,13 +126,15 @@ export function buildEstrutura(
       parentId: u.supervisorId !== null && sellerIds.has(u.supervisorId) ? u.supervisorId : null,
       rate: own?.rate ?? null,
       recebido: own?.base ?? 0,
+      ownAmount: own?.amount ?? 0,
       comissao: b?.total ?? 0,
       referralRate: b?.byRule.find(isReferral)?.rate ?? null,
+      uplineRules: hidden ? [] : (b?.byRule.filter((r) => r.ruleType === 'upline').sort((a, c) => (a.level ?? 0) - (c.level ?? 0)) ?? []),
       // An `own`/`direct`/`subtree`-scoped viewer only ever gets a partial `beneficiaries[]` from
       // /commissions (whatever `app.commission_beneficiaries()` covers for their scope), so anyone
       // outside that coverage has no entry there — their absence says nothing about their activity,
       // and their zeros must not be shown as real.
-      valuesHidden: visible !== null && !visible.has(u.id),
+      valuesHidden: hidden,
     };
   });
 

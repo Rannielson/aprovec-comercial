@@ -7,6 +7,8 @@ export type Me = {
   tenant: { id: string; slug: string; name: string };
   permissions: Permission[];
   modules: string[];
+  /** Template keys behind this user's roles (e.g. `['administrador']`); custom roles contribute nothing. */
+  roleTemplates: string[];
 };
 
 export type TenantInfo = { slug: string; name: string; platform: boolean };

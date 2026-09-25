@@ -9,7 +9,7 @@ public class AuthTests(ApiFixture api)
 {
     public sealed record PermissionDto(string Key, string? Scope);
     public sealed record TenantDto(Guid Id, string Slug, string Name);
-    public sealed record MeDto(Guid Id, string Name, string Email, TenantDto Tenant, List<PermissionDto> Permissions, List<string> Modules);
+    public sealed record MeDto(Guid Id, string Name, string Email, TenantDto Tenant, List<PermissionDto> Permissions, List<string> Modules, List<string> RoleTemplates);
 
     [Fact]
     public async Task Requests_without_the_internal_key_look_like_not_found()
@@ -38,6 +38,19 @@ public class AuthTests(ApiFixture api)
         Assert.Contains(new PermissionDto("carteira.visualizar", "own"), me.Permissions);
         Assert.Contains(new PermissionDto("estrutura.visualizar", "direct"), me.Permissions);
         Assert.Equal(7, me.Modules.Count);
+        Assert.Equal(new[] { "consultor" }, me.RoleTemplates);
+    }
+
+    [Fact]
+    public async Task Me_reports_the_administrador_template_for_the_admin_seed_user()
+    {
+        var s = await api.SeedAsync();
+        var admin = api.Client(s.Slug);
+        await admin.LoginAsync($"admin@{s.Slug}.local", ApiFixture.Password);
+
+        var me = await admin.GetJsonAsync<MeDto>("/me");
+
+        Assert.Equal(new[] { "administrador" }, me.RoleTemplates);
     }
 
     [Theory]

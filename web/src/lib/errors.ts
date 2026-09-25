@@ -24,6 +24,13 @@ const messages: Record<string, string> = {
   'fechamento.invalid_transition': 'Confirme a competência antes de provisionar.',
   'fechamento.not_found': 'Fechamento não encontrado para essa competência.',
   'internal.error': 'Não foi possível falar com o servidor. Tente novamente em instantes.',
+  'convite.link_invalido': 'Esse link não é válido ou expirou.',
+  'convite.indicador_sem_hinova': 'Você precisa estar vinculado a um código de voluntário na Hinova antes de gerar seu link.',
+  'request.invalid': 'Preencha todos os campos obrigatórios.',
+  'solicitacao.not_found': 'Solicitação não encontrada.',
+  'solicitacao.ja_resolvida': 'Essa solicitação já foi resolvida.',
+  'solicitacao.cpf_ja_cadastrado': 'Esse CPF já está cadastrado na Hinova. Resolva manualmente antes de aprovar.',
+  'solicitacao.indicador_sem_hinova': 'O indicador não está mais vinculado a um código de voluntário na Hinova.',
 };
 
 export function messageFor(code: string): string {

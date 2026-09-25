@@ -16,7 +16,7 @@ const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string |
   { id: 'arvore', icon: 'people', label: 'Árvore comissionada', href: '/administracao/arvore', permission: 'estrutura.visualizar', minScope: 'tenant' },
   { id: 'participantes', icon: 'people', label: 'Participantes', href: '/administracao/participantes', permission: 'estrutura.visualizar' },
   { id: 'convites', icon: 'people', label: 'Convites', href: '/administracao/convites', permission: 'usuarios.convidar' },
-  { id: 'remuneracao', icon: 'shield', label: 'Remuneração', href: null },
+  { id: 'remuneracao', icon: 'shield', label: 'Remuneração', href: '/administracao/remuneracao', permission: 'regras_comissao.visualizar' },
 ];
 
 // The mockup gives Administrador its own exclusive console, not the union of every permission-gated

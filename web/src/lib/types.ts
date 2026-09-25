@@ -89,7 +89,15 @@ export type HinovaMapeamento = {
   mappedAt: string;
 };
 
-export type UserNode = { id: string; name: string; email: string; status: string; supervisorId: string | null; roleIds: string[] };
+export type UserNode = {
+  id: string;
+  name: string;
+  email: string;
+  status: string;
+  supervisorId: string | null;
+  roleIds: string[];
+  planoCarreiraId: string | null;
+};
 
 export type CommissionEntry = {
   boletoId: string;
@@ -127,4 +135,22 @@ export type SolicitacaoCadastro = {
   indicadorUserId: string;
   indicadorNome: string;
   criadoEm: string;
+};
+
+export type FaixaBonus = { id: string; quantidadeMin: number; quantidadeMax: number | null; valorPorPlaca: number };
+
+export type RegraRecorrencia = { id: string; tipo: 'propria' | 'upline'; nivel: number | null; taxa: number };
+
+export type PlanoCarreira = {
+  id: string;
+  name: string;
+  status: string;
+  classificacao: 'clt_interno' | 'clt_externo' | 'so_externo';
+  janelaApuracaoDias: number;
+  metaMinimaContratos: number | null;
+  metaMinimaFonteData: string | null;
+  bonusExtraValor: number | null;
+  recorrenciaAtiva: boolean;
+  faixas: FaixaBonus[];
+  regrasRecorrencia: RegraRecorrencia[];
 };

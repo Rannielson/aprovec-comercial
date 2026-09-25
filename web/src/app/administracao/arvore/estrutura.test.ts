@@ -9,6 +9,7 @@ const user = (id: string, supervisorId: string | null = null, status = 'ativo'):
   status,
   supervisorId,
   roleIds: [],
+  planoCarreiraId: null,
 });
 
 const rule = (ruleType: RuleTotal['ruleType'], rate: number, base: number, level: number | null = null): RuleTotal => ({

@@ -76,7 +76,9 @@ export default async function ParticipantesPage({
 
   let voluntarios: HinovaVoluntario[] = [];
   let searchError: string | null = null;
-  if (adicionarOpen && searchQuery) {
+  // Fetched with an empty query too (not just once searchQuery is set) -- the panel should show
+  // every active voluntário right away, not stay empty until the admin types something.
+  if (adicionarOpen) {
     try {
       voluntarios = await apiFetch<HinovaVoluntario[]>(
         `/integracoes/hinova/voluntarios?${new URLSearchParams({ query: searchQuery }).toString()}`,

@@ -70,7 +70,10 @@ export default async function ArvorePage({
 
   let voluntarios: HinovaVoluntario[] = [];
   let searchError: string | null = null;
-  if (mode === 'arvore' && canAddRoot && searchQuery) {
+  // Fetched unconditionally (not just when searchQuery is set): which node's "+" panel is open is
+  // client-only state (no navigation on click), so the list has to already be here, ready to show
+  // in full, the moment any panel opens -- not just after the admin types something.
+  if (mode === 'arvore' && canAddRoot) {
     try {
       voluntarios = await apiFetch<HinovaVoluntario[]>(
         `/integracoes/hinova/voluntarios?${new URLSearchParams({ query: searchQuery }).toString()}`,
@@ -144,6 +147,7 @@ export default async function ArvorePage({
               showValues={showValues}
               restrictedScope={restrictedScope}
               canAddChild={canAddChild}
+              competencia={competencia}
               initialTarget={initialTarget}
               voluntarios={voluntarios}
               searchQuery={searchQuery}

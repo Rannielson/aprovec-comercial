@@ -6,6 +6,6 @@ public interface IHinovaClient
     Task<IReadOnlyList<HinovaVoluntario>> ListarVoluntariosAsync(string tokenUsuario, CancellationToken ct);
 }
 
-public sealed record HinovaVoluntario(string Codigo, string Nome, string Cpf);
+public sealed record HinovaVoluntario(string Codigo, string Nome, string Cpf, string? Telefone, IReadOnlyList<string> Cooperativas);
 
 public sealed class HinovaAuthException() : Exception("Falha ao autenticar na Hinova.");

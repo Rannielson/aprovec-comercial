@@ -5,7 +5,7 @@ namespace Recorrencia.Api.Tests;
 [Collection(ApiCollection.Name)]
 public class HinovaMapeamentosTests(ApiFixture api)
 {
-    public sealed record VoluntarioDto(string Codigo, string Nome, string Cpf, bool JaVinculado, string? VinculadoA);
+    public sealed record VoluntarioDto(string Codigo, string Nome, string Cpf, string? Telefone, List<string> Cooperativas, bool JaVinculado, string? VinculadoA);
     public sealed record MapeamentoDto(Guid UserId, string UserName, string CodigoVoluntario, string NomeHinova, string CpfHinova, DateTimeOffset MappedAt);
 
     private async Task<ApiClient> LoginAsAdminAsync(SeededTenant s)
@@ -47,6 +47,8 @@ public class HinovaMapeamentosTests(ApiFixture api)
         var ana = all.Single(v => v.Codigo == "101");
         Assert.True(ana.JaVinculado);
         Assert.Equal("João Silva", ana.VinculadoA);
+        Assert.Equal("(31)99111-2233", ana.Telefone);
+        Assert.Equal(["Cooperativa Central"], ana.Cooperativas);
 
         var filtered = await admin.GetJsonAsync<List<VoluntarioDto>>("/integracoes/hinova/voluntarios?query=bruno");
         Assert.Equal("Bruno Costa Lima", Assert.Single(filtered).Nome);

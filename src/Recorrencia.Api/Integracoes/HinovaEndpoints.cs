@@ -11,7 +11,7 @@ public static class HinovaEndpoints
 {
     public sealed record CredenciaisStatusResponse(bool Configurado, DateTimeOffset? AtualizadoEm, string? AtualizadoPor);
     public sealed record SalvarCredenciaisRequest(string Usuario, string Senha, string TokenSga);
-    public sealed record VoluntarioResponse(string Codigo, string Nome, string Cpf, bool JaVinculado, string? VinculadoA);
+    public sealed record VoluntarioResponse(string Codigo, string Nome, string Cpf, string? Telefone, IReadOnlyList<string> Cooperativas, bool JaVinculado, string? VinculadoA);
     public sealed record MapeamentoResponse(Guid UserId, string UserName, string CodigoVoluntario, string NomeHinova, string CpfHinova, DateTimeOffset MappedAt);
     public sealed record CriarMapeamentoRequest(Guid UserId, string CodigoVoluntario, string NomeHinova, string CpfHinova);
 
@@ -152,7 +152,7 @@ public static class HinovaEndpoints
             new { tenant }), ct)).ToDictionary(m => m.CodigoVoluntario, m => m.VinculadoA);
 
         return Results.Ok(filtered.Select(v => new VoluntarioResponse(
-            v.Codigo, v.Nome, v.Cpf, mapped.ContainsKey(v.Codigo), mapped.GetValueOrDefault(v.Codigo))).ToList());
+            v.Codigo, v.Nome, v.Cpf, v.Telefone, v.Cooperativas, mapped.ContainsKey(v.Codigo), mapped.GetValueOrDefault(v.Codigo))).ToList());
     }
 
     private static async Task<IResult> ListarMapeamentosAsync(RequestContext request, Database db, CancellationToken ct)

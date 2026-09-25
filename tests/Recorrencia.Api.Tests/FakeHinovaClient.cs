@@ -19,6 +19,11 @@ public sealed class FakeHinovaClient : IHinovaClient
     public string ProximoCodigoCadastrado { get; set; } = "999";
     public CadastrarVoluntarioRequest? UltimoCadastro { get; private set; }
 
+    /// <summary>One entry per page, consumed in InicioPaginacao order -- set up before a test so
+    /// ImportarBoletosAsync's paging loop has something to walk. Empty by default (no boletos).</summary>
+    public List<HinovaBoletoPagina> BoletosPaginas { get; } = [];
+    public HinovaBoletoPeriodoFiltro? UltimoFiltroBoletos { get; private set; }
+
     public Task<string> AutenticarAsync(string usuario, string senha, string tokenSga, CancellationToken ct) =>
         RejectAuth ? throw new HinovaAuthException() : Task.FromResult("token-usuario-fake");
 
@@ -32,5 +37,14 @@ public sealed class FakeHinovaClient : IHinovaClient
     {
         UltimoCadastro = request;
         return Task.FromResult(ProximoCodigoCadastrado);
+    }
+
+    public Task<HinovaBoletoPagina> ListarBoletosPeriodoAsync(string tokenUsuario, HinovaBoletoPeriodoFiltro filtro, CancellationToken ct)
+    {
+        UltimoFiltroBoletos = filtro;
+        var pagina = filtro.InicioPaginacao < BoletosPaginas.Count
+            ? BoletosPaginas[filtro.InicioPaginacao]
+            : new HinovaBoletoPagina(BoletosPaginas.Count, 0, filtro.InicioPaginacao, []);
+        return Task.FromResult(pagina);
     }
 }

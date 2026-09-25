@@ -46,3 +46,33 @@ export async function criarParticipante(_: FormState, formData: FormData): Promi
   revalidatePath('/administracao/participantes');
   return { message: 'Participante adicionado.' };
 }
+
+export async function editarParticipante(_: FormState, formData: FormData): Promise<FormState> {
+  const id = String(formData.get('id') ?? '');
+  const name = String(formData.get('name') ?? '');
+  const email = String(formData.get('email') ?? '');
+  const hasMapeamento = formData.get('hasMapeamento') === '1';
+  const password = String(formData.get('password') ?? '');
+
+  try {
+    await apiFetch(`/users/${id}`, { method: 'PUT', body: { name, email } });
+    if (hasMapeamento) {
+      await apiFetch(`/integracoes/hinova/mapeamentos/${id}`, {
+        method: 'PUT',
+        body: {
+          codigoVoluntario: String(formData.get('codigoVoluntario') ?? ''),
+          nomeHinova: String(formData.get('nomeHinova') ?? ''),
+          cpfHinova: String(formData.get('cpfHinova') ?? ''),
+        },
+      });
+    }
+    if (password.length > 0) {
+      await apiFetch(`/users/${id}/password`, { method: 'PUT', body: { password } });
+    }
+  } catch (error) {
+    if (error instanceof ApiError) return { error: messageFor(error.code) };
+    throw error;
+  }
+  revalidatePath('/administracao/participantes');
+  return { message: 'Participante atualizado.' };
+}

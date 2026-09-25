@@ -46,6 +46,7 @@ export default async function ParticipantesPage({
   // always creates a root (supervisorId: null), estrutura.editar isn't needed (unlike a child add).
   const canAdd = has('usuarios.convidar') && has('integracoes.gerenciar');
   const adicionarOpen = canAdd && adicionar === '1';
+  const canEdit = has('usuarios.convidar');
 
   // GET /users has no server-side query param (confirmed against UserEndpoints.ListAsync), so the
   // name/e-mail filter below runs client-side, same as the brief calls for.
@@ -178,12 +179,13 @@ export default async function ParticipantesPage({
                   <th>E-mail</th>
                   <th>Perfil</th>
                   <th>Supervisor</th>
+                  {canEdit && <th>Ações</th>}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="empty-state">
+                    <td colSpan={canEdit ? 5 : 4} className="empty-state">
                       <Icon name="people" />
                       <strong>Nenhum participante encontrado</strong>
                       <span>Tente outro nome ou e-mail.</span>
@@ -200,6 +202,13 @@ export default async function ParticipantesPage({
                         </span>
                       </td>
                       <td>{u.supervisorId ? (userName.get(u.supervisorId) ?? '—') : 'Sem indicador'}</td>
+                      {canEdit && (
+                        <td>
+                          <a className="action-link" href={`/administracao/participantes/${u.id}/editar`}>
+                            Editar
+                          </a>
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}

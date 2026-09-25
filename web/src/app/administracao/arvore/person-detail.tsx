@@ -46,11 +46,14 @@ export function PersonDetail({
   const p = people[target.id];
   if (!p) return null;
 
-  // Direct reports only (this person's level-1 supervision) — the per-person breakdown below can't
-  // drill into level 2+ without walking the whole subtree, so it stays scoped to what it can show
-  // accurately. The detail-list above already lists every level from `uplineRules`, level 1 included.
+  // Level 1 (direct reports) and level 2 (their reports, i.e. p's grandchildren) — each section below
+  // names exactly who feeds that level's base, mirroring the aggregate numbers already in detail-list.
   const diretos = Object.values(people).filter((candidate) => candidate.parentId === p.id);
+  const netos = Object.values(people).filter(
+    (candidate) => candidate.parentId !== null && diretos.some((d) => d.id === candidate.parentId),
+  );
   const nivel1 = p.uplineRules.find((r) => r.level === 1) ?? null;
+  const nivel2 = p.uplineRules.find((r) => r.level === 2) ?? null;
 
   return (
     <Overlay title="Composição da comissão" subtitle={`${p.name} · ${subtitle}`} onClose={onClose}>
@@ -100,6 +103,21 @@ export function PersonDetail({
               {s.name}
               {nivel1 !== null && !p.valuesHidden && !s.valuesHidden
                 ? ` · ${formatMoney(s.recebido)} × ${formatPercent(nivel1.rate)} = ${formatMoney(round2(s.recebido * nivel1.rate))}`
+                : ''}
+            </p>
+          ))
+        )}
+      </div>
+      <div className="rules-section">
+        <h3>Segundo nível</h3>
+        {netos.length === 0 ? (
+          <p>Nenhum consultor no segundo nível.</p>
+        ) : (
+          netos.map((s) => (
+            <p key={s.id}>
+              {s.name}
+              {nivel2 !== null && !p.valuesHidden && !s.valuesHidden
+                ? ` · ${formatMoney(s.recebido)} × ${formatPercent(nivel2.rate)} = ${formatMoney(round2(s.recebido * nivel2.rate))}`
                 : ''}
             </p>
           ))

@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type 
 import { useRouter } from 'next/navigation';
 import { Icon } from '../../components/app-icon';
 import { formatMoney, formatPercent } from '@/lib/format';
-import type { TreeLayout } from '@/lib/tree-layout';
+import type { TreeLayout, TreeNode } from '@/lib/tree-layout';
 import type { HinovaVoluntario } from '@/lib/types';
 import { ParticipanteSearch } from '../participante-search';
 import { NOVA_ARVORE } from './constants';
@@ -158,6 +158,17 @@ export function Pyramid({
   // Every root's connector drops from the brand card, straight down to the junction line, then across.
   const brandPaths = rootAnchors.map((p) => `M${center} ${bandBottom} V${junctionY} H${p.x} V${p.y}`);
 
+  // Level-2 (avô → neto) bypass connectors: routed past the parent's right edge so they read as a
+  // distinct, second relationship instead of retracing the direct parent→child line down the middle.
+  const nodesById = new Map(layout.nodes.map((n) => [n.id, n]));
+  const grandparentEdges: { grandparent: TreeNode; node: TreeNode }[] = layout.nodes.flatMap((node) => {
+    if (node.parentId === null) return [];
+    const parent = nodesById.get(node.parentId);
+    if (!parent || parent.parentId === null) return [];
+    const grandparent = nodesById.get(parent.parentId);
+    return grandparent ? [{ grandparent, node }] : [];
+  });
+
   // --- Add panel -------------------------------------------------------------------------------
   const targetNode = target && target !== NOVA_ARVORE ? layout.nodes.find((n) => n.id === target) : undefined;
   let panel: {
@@ -277,6 +288,32 @@ export function Pyramid({
                     <text className="connector-label" x={toX} y={to.y - 11}>
                       {label}
                     </text>
+                  </g>
+                );
+              })}
+              {grandparentEdges.map(({ grandparent, node }) => {
+                const avo = people[grandparent.id];
+                const rate2 = avo.uplineRules.find((r) => r.level === 2)?.rate ?? null;
+                const label = rate2 !== null ? `${formatPercent(rate2)} para ${firstName(avo.name)}` : null;
+                const bypassX = grandparent.x + nodeWidth + 32;
+                const gpY = grandparent.y + nodeHeight / 2;
+                const nodeY = node.y + nodeHeight / 2;
+                const labelY = (gpY + nodeY) / 2;
+                const labelX = bypassX + 62;
+                return (
+                  <g key={`${grandparent.id}-${node.id}`}>
+                    <path
+                      className="upline2-connector"
+                      d={`M${grandparent.x + nodeWidth} ${gpY} H${bypassX} V${nodeY} H${node.x + nodeWidth}`}
+                    />
+                    {label && (
+                      <>
+                        <rect className="connector-label-bg" x={labelX - 62} y={labelY - 9} width={124} height={18} rx={5} />
+                        <text className="connector-label upline2" x={labelX} y={labelY + 4}>
+                          {label}
+                        </text>
+                      </>
+                    )}
                   </g>
                 );
               })}

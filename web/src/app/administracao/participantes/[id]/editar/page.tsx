@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { AppShell } from '../../../../app-shell';
 import { apiFetch, currentHost } from '@/lib/api';
-import type { HinovaMapeamento, Me, UserNode } from '@/lib/types';
+import type { HinovaMapeamento, Me, PlanoCarreira, UserNode } from '@/lib/types';
 import { ParticipanteEditForm } from './participante-edit-form';
 
 export default async function EditarParticipantePage({ params }: { params: Promise<{ id: string }> }) {
@@ -31,6 +31,9 @@ export default async function EditarParticipantePage({ params }: { params: Promi
   const mapeamentos = canSeeHinova ? await apiFetch<HinovaMapeamento[]>('/integracoes/hinova/mapeamentos') : [];
   const mapeamento = mapeamentos.find((m) => m.userId === id) ?? null;
 
+  const canSeePlanos = has('estrutura.editar');
+  const planos = canSeePlanos ? await apiFetch<PlanoCarreira[]>('/planos-carreira') : [];
+
   return (
     <AppShell me={me} active="participantes">
       <div className="shell">
@@ -45,7 +48,7 @@ export default async function EditarParticipantePage({ params }: { params: Promi
           </a>
         </div>
         <section className="card">
-          <ParticipanteEditForm user={user} mapeamento={mapeamento} />
+          <ParticipanteEditForm user={user} mapeamento={mapeamento} planos={planos} />
         </section>
       </div>
     </AppShell>

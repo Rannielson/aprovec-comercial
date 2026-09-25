@@ -2,10 +2,18 @@
 
 import { useActionState } from 'react';
 import type { FormState } from '@/lib/form-state';
-import type { HinovaMapeamento, UserNode } from '@/lib/types';
+import type { HinovaMapeamento, PlanoCarreira, UserNode } from '@/lib/types';
 import { editarParticipante } from '../../../actions';
 
-export function ParticipanteEditForm({ user, mapeamento }: { user: UserNode; mapeamento: HinovaMapeamento | null }) {
+export function ParticipanteEditForm({
+  user,
+  mapeamento,
+  planos,
+}: {
+  user: UserNode;
+  mapeamento: HinovaMapeamento | null;
+  planos: PlanoCarreira[];
+}) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(editarParticipante, {});
 
   return (
@@ -35,6 +43,21 @@ export function ParticipanteEditForm({ user, mapeamento }: { user: UserNode; map
             <input type="text" name="cpfHinova" defaultValue={mapeamento.cpfHinova} required />
           </label>
         </>
+      )}
+      {planos.length > 0 && (
+        <label>
+          Plano de carreira
+          <select name="planoCarreiraId" defaultValue={user.planoCarreiraId ?? ''}>
+            <option value="">Sem plano de carreira</option>
+            {planos
+              .filter((p) => p.status === 'ativo' || p.id === user.planoCarreiraId)
+              .map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+          </select>
+        </label>
       )}
       <label>
         Nova senha

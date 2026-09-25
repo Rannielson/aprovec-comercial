@@ -8,6 +8,7 @@ using Recorrencia.Api.Authorization;
 using Recorrencia.Api.Carteira;
 using Recorrencia.Api.Cli;
 using Recorrencia.Api.Commissions;
+using Recorrencia.Api.Convites;
 using Recorrencia.Api.Email;
 using Recorrencia.Api.Fechamentos;
 using Recorrencia.Api.Infrastructure;
@@ -121,6 +122,7 @@ app.MapFechamentoEndpoints();
 app.MapCarteiraEndpoints();
 app.MapPlatformEndpoints();
 app.MapHinovaEndpoints();
+app.MapConviteLinkEndpoints();
 
 app.Run();
 

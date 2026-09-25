@@ -14,6 +14,7 @@ public static class HinovaEndpoints
     public sealed record VoluntarioResponse(string Codigo, string Nome, string Cpf, string? Telefone, IReadOnlyList<string> Cooperativas, bool JaVinculado, string? VinculadoA);
     public sealed record MapeamentoResponse(Guid UserId, string UserName, string CodigoVoluntario, string NomeHinova, string CpfHinova, DateTimeOffset MappedAt);
     public sealed record CriarMapeamentoRequest(Guid UserId, string CodigoVoluntario, string NomeHinova, string CpfHinova);
+    public sealed record AtualizarMapeamentoRequest(string? CodigoVoluntario, string? NomeHinova, string? CpfHinova);
 
     private sealed class StatusRow
     {
@@ -44,6 +45,7 @@ public static class HinovaEndpoints
         app.MapGet("/integracoes/hinova/voluntarios", ListarVoluntariosAsync).RequirePermission("integracoes.gerenciar");
         app.MapGet("/integracoes/hinova/mapeamentos", ListarMapeamentosAsync).RequirePermission("integracoes.gerenciar");
         app.MapPost("/integracoes/hinova/mapeamentos", CriarMapeamentoAsync).RequirePermission("integracoes.gerenciar");
+        app.MapPut("/integracoes/hinova/mapeamentos/{userId:guid}", AtualizarMapeamentoAsync).RequirePermission("integracoes.gerenciar");
         app.MapDelete("/integracoes/hinova/mapeamentos/{userId:guid}", RemoverMapeamentoAsync).RequirePermission("integracoes.gerenciar");
     }
 
@@ -172,6 +174,44 @@ public static class HinovaEndpoints
         }, ct);
 
         return Results.Created($"/integracoes/hinova/mapeamentos/{body.UserId}", body);
+    }
+
+    private static async Task<IResult> AtualizarMapeamentoAsync(Guid userId, AtualizarMapeamentoRequest body, RequestContext request, Database db, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        var codigo = (body.CodigoVoluntario ?? "").Trim();
+        var nome = (body.NomeHinova ?? "").Trim();
+        var cpf = (body.CpfHinova ?? "").Trim();
+        if (codigo.Length == 0 || nome.Length == 0 || cpf.Length == 0)
+            throw new ApiProblem(StatusCodes.Status400BadRequest, "request.invalid");
+
+        await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            var current = await tx.QuerySingleOrDefaultAsync<MapeamentoRow>(
+                """
+                select user_id, codigo_voluntario, nome_hinova, cpf_hinova
+                  from hinova_voluntario_mapping
+                 where tenant_id = @tenant and user_id = @userId
+                 for update
+                """,
+                new { tenant, userId }) ?? throw new ApiProblem(StatusCodes.Status404NotFound, "hinova.vinculo_not_found");
+            try
+            {
+                await tx.ExecuteAsync(
+                    "update hinova_voluntario_mapping set codigo_voluntario = @codigo, nome_hinova = @nome, cpf_hinova = @cpf where tenant_id = @tenant and user_id = @userId",
+                    new { tenant, userId, codigo, nome, cpf });
+            }
+            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
+            {
+                throw new ApiProblem(StatusCodes.Status409Conflict, "hinova.vinculo_duplicado");
+            }
+            await WriteAsync(tx, tenant, actor, "hinova.atualizar_vinculo", "hinova_voluntario_mapping", userId,
+                new { current.CodigoVoluntario, current.NomeHinova, current.CpfHinova }, new { codigo, nome, cpf });
+            return 0;
+        }, ct);
+
+        return Results.NoContent();
     }
 
     private static async Task<IResult> RemoverMapeamentoAsync(Guid userId, RequestContext request, Database db, CancellationToken ct)

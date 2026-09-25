@@ -19,6 +19,7 @@ const messages: Record<string, string> = {
   'hinova.credenciais_invalidas': 'A Hinova não aceitou essas credenciais. Confira usuário, senha e token.',
   'hinova.nao_configurado': 'Configure as credenciais da Hinova antes de buscar voluntários.',
   'hinova.vinculo_duplicado': 'Esse usuário ou esse voluntário já está vinculado a outro registro.',
+  'hinova.vinculo_not_found': 'Este participante não tem vínculo com a Hinova.',
   'hinova.campos_incompletos': 'Preencha todos os dados do voluntário antes de confirmar.',
   'fechamento.competencia_not_closed': 'Só é possível confirmar competências já encerradas.',
   'fechamento.already_confirmed': 'Essa competência já foi confirmada.',

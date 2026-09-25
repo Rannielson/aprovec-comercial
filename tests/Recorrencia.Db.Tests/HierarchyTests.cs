@@ -235,4 +235,45 @@ public class HierarchyTests(PostgresFixture db)
                 "update users set name = 'Novo Nome', email = 'novo@teste.local' where id = @u", new { u }, tx));
         Assert.Equal(1, affected);
     }
+
+    // app.set_password_admin flips a pending user's status 'convidado' -> 'ativo'. Its callers
+    // (POST /users with a password, PUT /users/{id}/password) are gated by usuarios.convidar,
+    // so the column guard must allow exactly that transition for a usuarios.convidar holder
+    // who does NOT also hold usuarios.desligar. The acting user is a real, non-null user so
+    // the trigger actually runs (a null acting user bypasses it entirely).
+
+    [Fact]
+    public async Task Usuarios_convidar_alone_can_activate_a_pending_user_via_set_password_admin()
+    {
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var actor = await _seed.UserAsync(t, "Onboarding");
+        var role = await _seed.RoleAsync(t, "Só convidar", ("usuarios.convidar", null));
+        await _seed.AssignRoleAsync(t, actor, role);
+        var pending = await _seed.UserAsync(t, "Pendente", status: "convidado");
+
+        await db.AsAppUserAsync(t, actor, (c, tx) => c.ExecuteAsync(
+            "select app.set_password_admin(@pending, @hash)", new { pending, hash = "hash-novo" }, tx));
+
+        Assert.Equal("ativo", await _seed.ScalarAsync<string>("select status from users where id = @pending", new { pending }));
+        Assert.Equal("hash-novo", await _seed.ScalarAsync<string>("select password_hash from users where id = @pending", new { pending }));
+    }
+
+    [Fact]
+    public async Task Usuarios_convidar_alone_still_cannot_deactivate_a_user()
+    {
+        // estrutura.visualizar/tenant only so the target row is visible to the UPDATE; the
+        // point is that usuarios.convidar's 'convidado' -> 'ativo' allowance does not extend
+        // to any transition touching 'desligado', which still needs usuarios.desligar.
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var actor = await _seed.UserAsync(t, "Onboarding");
+        var role = await _seed.RoleAsync(t, "Só convidar", ("usuarios.convidar", null), ("estrutura.visualizar", "tenant"));
+        await _seed.AssignRoleAsync(t, actor, role);
+        var target = await _seed.UserAsync(t, "Ativa");
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(t, actor, (c, tx) =>
+            c.ExecuteAsync("update users set status = 'desligado' where id = @target", new { target }, tx)));
+        Assert.Equal("auth.forbidden", ex.MessageText);
+    }
 }

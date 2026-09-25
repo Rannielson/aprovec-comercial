@@ -46,12 +46,11 @@ export function PersonDetail({
   const p = people[target.id];
   if (!p) return null;
 
-  // Level 1 (direct reports) and level 2 (their reports, i.e. p's grandchildren) — each section below
-  // names exactly who feeds that level's base, mirroring the aggregate numbers already in detail-list.
+  // Level 1 (direct reports) and level 2 (their own reports, i.e. p's grandchildren), grouped by
+  // lineage rather than two disconnected flat lists — grandchildren render nested under the direct
+  // report that actually produced them, so the trail (who leads to whom) stays visible.
   const diretos = Object.values(people).filter((candidate) => candidate.parentId === p.id);
-  const netos = Object.values(people).filter(
-    (candidate) => candidate.parentId !== null && diretos.some((d) => d.id === candidate.parentId),
-  );
+  const netosOf = (directId: string) => Object.values(people).filter((candidate) => candidate.parentId === directId);
   const nivel1 = p.uplineRules.find((r) => r.level === 1) ?? null;
   const nivel2 = p.uplineRules.find((r) => r.level === 2) ?? null;
 
@@ -94,33 +93,47 @@ export function PersonDetail({
         <p>Comissão da carteira própria + comissão de cada nível de supervisão.</p>
       </section>
       <div className="rules-section">
-        <h3>Supervisão direta</h3>
+        <h3>Árvore de indicados</h3>
         {diretos.length === 0 ? (
           <p>Nenhum consultor supervisionado diretamente.</p>
         ) : (
-          diretos.map((s) => (
-            <p key={s.id}>
-              {s.name}
-              {nivel1 !== null && !p.valuesHidden && !s.valuesHidden
-                ? ` · ${formatMoney(s.recebido)} × ${formatPercent(nivel1.rate)} = ${formatMoney(round2(s.recebido * nivel1.rate))}`
-                : ''}
-            </p>
-          ))
-        )}
-      </div>
-      <div className="rules-section">
-        <h3>Segundo nível</h3>
-        {netos.length === 0 ? (
-          <p>Nenhum consultor no segundo nível.</p>
-        ) : (
-          netos.map((s) => (
-            <p key={s.id}>
-              {s.name}
-              {nivel2 !== null && !p.valuesHidden && !s.valuesHidden
-                ? ` · ${formatMoney(s.recebido)} × ${formatPercent(nivel2.rate)} = ${formatMoney(round2(s.recebido * nivel2.rate))}`
-                : ''}
-            </p>
-          ))
+          <div className="mini-tree">
+            {diretos.map((direto) => {
+              const netos = netosOf(direto.id);
+              return (
+                <div className="mini-tree-branch" key={direto.id}>
+                  <div className="mini-tree-node">
+                    <span className="avatar network-avatar">{initials(direto.name)}</span>
+                    <div>
+                      <strong>{direto.name}</strong>
+                      <small>
+                        {nivel1 !== null && !p.valuesHidden && !direto.valuesHidden
+                          ? `${formatMoney(direto.recebido)} × ${formatPercent(nivel1.rate)} = ${formatMoney(round2(direto.recebido * nivel1.rate))}`
+                          : '1º nível'}
+                      </small>
+                    </div>
+                  </div>
+                  {netos.length > 0 && (
+                    <div className="mini-tree-children">
+                      {netos.map((neto) => (
+                        <div className="mini-tree-node is-neto" key={neto.id}>
+                          <span className="avatar network-avatar">{initials(neto.name)}</span>
+                          <div>
+                            <strong>{neto.name}</strong>
+                            <small>
+                              {nivel2 !== null && !p.valuesHidden && !neto.valuesHidden
+                                ? `${formatMoney(neto.recebido)} × ${formatPercent(nivel2.rate)} = ${formatMoney(round2(neto.recebido * nivel2.rate))}`
+                                : '2º nível'}
+                            </small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
       <div className="detail-actions">

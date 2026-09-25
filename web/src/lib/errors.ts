@@ -42,6 +42,7 @@ const messages: Record<string, string> = {
   'plano_carreira.regra_duplicada': 'Já existe uma regra de recorrência para esse tipo e nível.',
   'plano_carreira.not_found': 'Plano de carreira não encontrado.',
   'plano_carreira.em_uso': 'Este plano está atribuído a participantes — remova a atribuição antes de excluir.',
+  'plano_carreira.invalido': 'Selecione um plano de carreira válido.',
 };
 
 export function messageFor(code: string): string {

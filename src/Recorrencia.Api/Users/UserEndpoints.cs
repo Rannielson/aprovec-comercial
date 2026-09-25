@@ -18,6 +18,7 @@ public static class UserEndpoints
     public sealed record UserRolesRequest(Guid[]? RoleIds);
     public sealed record SetUserPasswordRequest(string? Password);
     public sealed record UpdateUserRequest(string? Name, string? Email);
+    public sealed record PlanoCarreiraAssignRequest(Guid? PlanoCarreiraId);
 
     public sealed class UserRow
     {
@@ -27,6 +28,7 @@ public static class UserEndpoints
         public string Status { get; set; } = "";
         public Guid? SupervisorId { get; set; }
         public Guid[] RoleIds { get; set; } = [];
+        public Guid? PlanoCarreiraId { get; set; }
     }
 
     public sealed class SupervisorRow
@@ -43,17 +45,18 @@ public static class UserEndpoints
         app.MapPost("/users/{id:guid}/deactivate", DeactivateAsync).RequirePermission("usuarios.desligar");
         app.MapPut("/users/{id:guid}/password", SetPasswordAsync).RequirePermission("usuarios.convidar");
         app.MapPut("/users/{id:guid}/roles", SetRolesAsync).RequirePermission("usuarios.gerenciar_perfis");
+        app.MapPut("/users/{id:guid}/plano-carreira", SetPlanoCarreiraAsync).RequirePermission("estrutura.editar");
     }
 
     private static async Task<IResult> ListAsync(RequestContext request, Database db, CancellationToken ct)
     {
         var users = await db.InTenantAsync(request.RequireTenant(), request.RequireUser(), tx => tx.QueryAsync<UserRow>(
             """
-            select u.id, u.name, u.email, u.status, u.supervisor_id,
+            select u.id, u.name, u.email, u.status, u.supervisor_id, u.plano_carreira_id,
                    coalesce(array_agg(ur.role_id) filter (where ur.role_id is not null), '{}')::uuid[] as role_ids
               from users u
               left join user_roles ur on ur.user_id = u.id
-             group by u.id, u.name, u.email, u.status, u.supervisor_id
+             group by u.id, u.name, u.email, u.status, u.supervisor_id, u.plano_carreira_id
              order by u.name
             """), ct);
         return Results.Ok(users);
@@ -283,6 +286,30 @@ public static class UserEndpoints
             await RoleGuards.EnsureCanManageUserAsync(tx, mine, id);
             await tx.ExecuteAsync("select app.set_password_admin(@id, @hash)", new { id, hash });
             await WriteAsync(tx, tenant, actor, "users.set_password_admin", "users", id, null, null);
+            return 0;
+        }, ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> SetPlanoCarreiraAsync(Guid id, PlanoCarreiraAssignRequest body, RequestContext request, Database db, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            var exists = await tx.QuerySingleOrDefaultAsync<bool?>("select true from users where id = @id for update", new { id });
+            if (exists is null)
+                throw new ApiProblem(StatusCodes.Status404NotFound, "users.not_found");
+            try
+            {
+                await tx.ExecuteAsync("update users set plano_carreira_id = @planoCarreiraId where id = @id",
+                    new { planoCarreiraId = body.PlanoCarreiraId, id });
+            }
+            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            {
+                throw new ApiProblem(StatusCodes.Status400BadRequest, "plano_carreira.invalido");
+            }
+            await WriteAsync(tx, tenant, actor, "users.set_plano_carreira", "users", id, null, new { body.PlanoCarreiraId });
             return 0;
         }, ct);
         return Results.NoContent();

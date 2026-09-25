@@ -8,7 +8,7 @@ namespace Recorrencia.Api.Tests;
 [Collection(ApiCollection.Name)]
 public class UserTests(ApiFixture api)
 {
-    public sealed record UserDto(Guid Id, string Name, string Email, string Status, Guid? SupervisorId, Guid[] RoleIds);
+    public sealed record UserDto(Guid Id, string Name, string Email, string Status, Guid? SupervisorId, Guid[] RoleIds, Guid? PlanoCarreiraId);
     public sealed record PermissionDto(string Key, string? Scope);
     public sealed record MeDto(List<PermissionDto> Permissions);
     public sealed record CreatedDto(Guid Id);
@@ -815,5 +815,65 @@ public class UserTests(ApiFixture api)
             HttpStatusCode.NoContent);
 
         await api.Client(s.Slug).LoginAsync(email, "senha-trocada-123");
+    }
+
+    [Fact]
+    public async Task Admin_assigns_and_removes_a_plano_carreira()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        var created = await admin.PostAsync("/planos-carreira", new
+        {
+            name = "Plano X", classificacao = "clt_interno", janelaApuracaoDias = 30, recorrenciaAtiva = false,
+        });
+        var planoId = (await created.Content.ReadFromJsonAsync<CreatedDto>(ApiClient.Json))!.Id;
+
+        await ApiClient.ExpectAsync(
+            await admin.PutAsync($"/users/{s.Maria}/plano-carreira", new { planoCarreiraId = planoId }),
+            HttpStatusCode.NoContent);
+        var sees = await admin.GetJsonAsync<List<UserDto>>("/users");
+        Assert.Equal(planoId, sees.Single(u => u.Id == s.Maria).PlanoCarreiraId);
+
+        await ApiClient.ExpectAsync(
+            await admin.PutAsync($"/users/{s.Maria}/plano-carreira", new { planoCarreiraId = (Guid?)null }),
+            HttpStatusCode.NoContent);
+        var depois = await admin.GetJsonAsync<List<UserDto>>("/users");
+        Assert.Null(depois.Single(u => u.Id == s.Maria).PlanoCarreiraId);
+    }
+
+    [Fact]
+    public async Task Assigning_a_plano_from_another_tenant_is_rejected()
+    {
+        var s = await api.SeedAsync();
+        var other = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        var otherAdmin = await LoginAsync(other, "admin");
+        var created = await otherAdmin.PostAsync("/planos-carreira", new
+        {
+            name = "Plano de outro tenant", classificacao = "clt_interno", janelaApuracaoDias = 30, recorrenciaAtiva = false,
+        });
+        var planoDeOutroTenant = (await created.Content.ReadFromJsonAsync<CreatedDto>(ApiClient.Json))!.Id;
+
+        var response = await admin.PutAsync($"/users/{s.Maria}/plano-carreira", new { planoCarreiraId = planoDeOutroTenant });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("plano_carreira.invalido", await ApiClient.CodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Assigning_a_plano_without_estrutura_editar_is_forbidden()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        var created = await admin.PostAsync("/planos-carreira", new
+        {
+            name = "Plano Y", classificacao = "clt_interno", janelaApuracaoDias = 30, recorrenciaAtiva = false,
+        });
+        var planoId = (await created.Content.ReadFromJsonAsync<CreatedDto>(ApiClient.Json))!.Id;
+        var maria = await LoginAsync(s, "maria");
+
+        var response = await maria.PutAsync($"/users/{s.Pedro}/plano-carreira", new { planoCarreiraId = planoId });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 }

@@ -94,7 +94,11 @@ $$;
 -- com vínculo Hinova.
 create policy solicitacoes_cadastro_insert_publico on solicitacoes_cadastro for insert to app_user
   with check (true);
-create policy solicitacoes_cadastro_admin on solicitacoes_cadastro for select, update to app_user
+-- Postgres's CREATE POLICY takes exactly one command per FOR clause (no "for select, update"
+-- comma list) -- select and update need their own policies, even though the condition is identical.
+create policy solicitacoes_cadastro_select_admin on solicitacoes_cadastro for select to app_user
+  using ((select app.has_permission('usuarios.convidar')) and (select app.has_permission('integracoes.gerenciar')));
+create policy solicitacoes_cadastro_update_admin on solicitacoes_cadastro for update to app_user
   using ((select app.has_permission('usuarios.convidar')) and (select app.has_permission('integracoes.gerenciar')))
   with check ((select app.has_permission('usuarios.convidar')) and (select app.has_permission('integracoes.gerenciar')));
 
@@ -133,24 +137,31 @@ public class ConvitesIndicacaoTests(PostgresFixture db)
     [Fact]
     public async Task Anyone_can_insert_a_solicitacao_without_being_a_real_user()
     {
-        var tenant = await _seed.TenantAsync();
+        var (tenant, admin) = await _seed.ProvisionAsync();
+        await ActivateAsync(admin);
         var indicador = await _seed.UserAsync(tenant, "Indicador");
+        var id = Guid.NewGuid();
 
         // "Sem usuário" = a mesma chamada que o backend faz via db.InTenantAsync(tenant, null, ...)
-        // para o fluxo público: tenant setado, app.current_user_id() nulo.
-        var count = await db.AsAppUserAsync(tenant, null, async (c, tx) =>
-        {
-            await c.ExecuteAsync(
-                """
-                insert into solicitacoes_cadastro
-                  (tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, bairro, cidade, estado)
-                values (@tenant, @indicador, 'Fulano', '11111111111', '11999999999', 'fulano@teste.local',
-                        '30000000', 'Rua X', '1', 'Bairro', 'Cidade', 'UF')
-                """,
-                new { tenant, indicador }, tx);
-            return await c.ExecuteScalarAsync<int>(
-                "select count(*) from solicitacoes_cadastro where tenant_id = @tenant", new { tenant }, tx);
-        });
+        // para o fluxo público: tenant setado, app.current_user_id() nulo. O id é gerado aqui em
+        // C# e inserido explicitamente -- nunca via "returning", que sob RLS é filtrado pelas
+        // policies de SELECT da tabela: uma sessão anônima sem nenhuma policy de select anônimo
+        // não veria a linha de volta (RETURNING de zero linhas visíveis, não um erro).
+        await db.AsAppUserAsync(tenant, null, (c, tx) => c.ExecuteAsync(
+            """
+            insert into solicitacoes_cadastro
+              (id, tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, bairro, cidade, estado)
+            values (@id, @tenant, @indicador, 'Fulano', '11111111111', '11999999999', 'fulano@teste.local',
+                    '30000000', 'Rua X', '1', 'Bairro', 'Cidade', 'UF')
+            """,
+            new { id, tenant, indicador }, tx));
+
+        // Confirma que a linha existe de verdade lendo como admin (que já tem select legítimo
+        // via solicitacoes_cadastro_select_admin) -- não como o próprio anônimo: o fluxo público
+        // nunca precisa ler solicitacoes_cadastro de volta, então a tabela não tem (nem deveria
+        // ter) uma policy de select anônimo, que exporia CPF/endereço/e-mail de todo mundo no tenant.
+        var count = await db.AsAppUserAsync(tenant, admin, (c, tx) =>
+            c.ExecuteScalarAsync<int>("select count(*) from solicitacoes_cadastro where id = @id", new { id }, tx));
         Assert.Equal(1, count);
     }
 
@@ -183,15 +194,15 @@ public class ConvitesIndicacaoTests(PostgresFixture db)
         var (tenant, admin) = await _seed.ProvisionAsync();
         await ActivateAsync(admin);
         var indicador = await _seed.UserAsync(tenant, "Indicador");
-        var id = await db.AsAppUserAsync(tenant, null, (c, tx) => c.QuerySingleAsync<Guid>(
+        var id = Guid.NewGuid();
+        await db.AsAppUserAsync(tenant, null, (c, tx) => c.ExecuteAsync(
             """
             insert into solicitacoes_cadastro
-              (tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, bairro, cidade, estado)
-            values (@tenant, @indicador, 'Fulano', '11111111111', '11999999999', 'fulano@teste.local',
+              (id, tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, bairro, cidade, estado)
+            values (@id, @tenant, @indicador, 'Fulano', '11111111111', '11999999999', 'fulano@teste.local',
                     '30000000', 'Rua X', '1', 'Bairro', 'Cidade', 'UF')
-            returning id
             """,
-            new { tenant, indicador }, tx));
+            new { id, tenant, indicador }, tx));
 
         var count = await db.AsAppUserAsync(tenant, admin, (c, tx) =>
             c.ExecuteScalarAsync<int>("select count(*) from solicitacoes_cadastro where tenant_id = @tenant", new { tenant }, tx));
@@ -208,15 +219,15 @@ public class ConvitesIndicacaoTests(PostgresFixture db)
         var (tenant, admin) = await _seed.ProvisionAsync();
         await ActivateAsync(admin);
         var indicador = await _seed.UserAsync(tenant, "Indicador");
-        var id = await db.AsAppUserAsync(tenant, null, (c, tx) => c.QuerySingleAsync<Guid>(
+        var id = Guid.NewGuid();
+        await db.AsAppUserAsync(tenant, null, (c, tx) => c.ExecuteAsync(
             """
             insert into solicitacoes_cadastro
-              (tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, bairro, cidade, estado)
-            values (@tenant, @indicador, 'Fulano', '11111111111', '11999999999', 'fulano@teste.local',
+              (id, tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, bairro, cidade, estado)
+            values (@id, @tenant, @indicador, 'Fulano', '11111111111', '11999999999', 'fulano@teste.local',
                     '30000000', 'Rua X', '1', 'Bairro', 'Cidade', 'UF')
-            returning id
             """,
-            new { tenant, indicador }, tx));
+            new { id, tenant, indicador }, tx));
 
         var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(tenant, admin, (c, tx) => c.ExecuteAsync(
             "update solicitacoes_cadastro set status = 'aprovado', resolvido_em = now(), resolvido_por = @admin where id = @id",
@@ -767,6 +778,8 @@ git commit -m "refactor(api): extract reusable user-creation helpers from POST /
 ### Task 4: Endpoints de link de indicação (`/convite-links/*`)
 
 **Files:**
+- Create: `src/Recorrencia.Db/Scripts/0016_hinova_voluntario_mapping_self_select.sql`
+- Create: `src/Recorrencia.Db/Scripts/0017_resolve_convite_link.sql`
 - Create: `src/Recorrencia.Api/Convites/ConviteLinkEndpoints.cs`
 - Modify: `src/Recorrencia.Api/Email/LinkBuilder.cs`
 - Modify: `src/Recorrencia.Api/Program.cs`
@@ -774,7 +787,48 @@ git commit -m "refactor(api): extract reusable user-creation helpers from POST /
 
 **Interfaces:**
 - Consumes: nada de tasks anteriores (independente das Tasks 2/3).
-- Produces: `GET /convite-links/me` (autenticado, sem permissão extra) devolve `{ url }` ou `409 convite.indicador_sem_hinova`; `GET /convite-links/{token}` (público) devolve `{ indicadorNome, tenantNome }` ou `404 convite.link_invalido`. A Task 5 consome o segundo desses (para a página pública resolver o token antes de aceitar o formulário) e a lógica de resolver `indicador_user_id` a partir do token (mesma query).
+- Produces: `GET /convite-links/me` (autenticado, sem permissão extra) devolve `{ url }` ou `409 convite.indicador_sem_hinova`; `GET /convite-links/{token}` (público) devolve `{ indicadorNome, tenantNome }` ou `404 convite.link_invalido`. A função SQL `app.resolve_convite_link(p_tenant uuid, p_token text) returns table (user_id uuid, nome text)` (Step 0b) é o único jeito seguro de resolver um token pra um usuário sob uma sessão anônima -- a Task 5 reaproveita essa MESMA função (não a chamada HTTP) pra descobrir o `indicador_user_id` na hora de submeter o formulário.
+
+- [ ] **Step 0a: Migração — consultor precisa ver o próprio vínculo Hinova**
+
+**Descoberto durante a execução deste plano, não estava no design original:** a única policy de `hinova_voluntario_mapping` (`0014_hinova_integracao.sql`) restringe QUALQUER acesso a quem tem `integracoes.gerenciar` -- só o Administrador. Um consultor comum não consegue ver nem a própria linha, o que quebra `MeAsync` (Step 3 abaixo): a checagem "esse usuário já tem vínculo Hinova?" sempre voltaria vazia para um consultor real, mesmo com o vínculo existindo. Corrija com uma migração nova (não edite `0014`, que já está em produção):
+
+```sql
+-- hinova_voluntario_mapping's única policy (0014_hinova_integracao.sql) restringe QUALQUER
+-- acesso a integracoes.gerenciar (Administrador) -- um consultor não consegue ver nem a própria
+-- linha, o que a Fase 5 (indicação) precisa: saber se o próprio usuário já está vinculado à
+-- Hinova, para decidir se mostra o link de indicação. Policy nova, só de SELECT, para a própria
+-- linha -- insert/update/delete continuam exclusivos do Administrador via a policy já existente.
+create policy hinova_voluntario_mapping_self_select on hinova_voluntario_mapping for select to app_user
+  using (user_id = app.current_user_id());
+```
+
+Crie `src/Recorrencia.Db/Scripts/0016_hinova_voluntario_mapping_self_select.sql` com exatamente esse conteúdo.
+
+- [ ] **Step 0b: Migração — resolver um link de indicação sob sessão anônima**
+
+**Segunda descoberta, mesma causa raiz:** `users_select` (`0011_rls.sql`) não tem NENHUM ramo para sessão anônima (`app.current_user_id() is null`) -- só `id = próprio usuário`, ou visibilidade por escopo de `estrutura.visualizar`, ambos exigindo um usuário autenticado. Isso quebra qualquer `join` com `users` feito sob `db.InTenantAsync(tenant, null, ...)`: silenciosamente devolve zero linhas (não um erro), token válido ou não. **Não corrija isso com uma policy de SELECT anônimo em `users`** -- essa tabela tem e-mail, status e `supervisor_id` de todo mundo; qualquer policy que exponha linhas por RLS exporia a linha inteira, não só o nome. O padrão já usado neste mesmo projeto pra exatamente esse problema (`app.find_login`, em `0005_auth_functions.sql`, usado por `PasswordEndpoints` do mesmo jeito) é uma função `security definer`: roda com privilégio elevado internamente, mas só devolve os dois campos que o chamador realmente precisa.
+
+```sql
+-- Mesmo padrão de app.find_login (0005_auth_functions.sql) para o mesmo problema: uma sessão
+-- anônima não vê nenhuma linha de `users` via RLS (users_select não tem ramo anônimo), então um
+-- join direto sob db.InTenantAsync(tenant, null, ...) devolveria zero linhas sempre, token válido
+-- ou não. security definer resolve isso internamente sem abrir SELECT anônimo em `users` (que
+-- exporia e-mail/status/supervisor_id de todo mundo, não só o nome de quem tem link).
+create function app.resolve_convite_link(p_tenant uuid, p_token text)
+returns table (user_id uuid, nome text)
+language sql stable security definer set search_path = pg_catalog, public, app
+as $$
+  select u.id, u.name
+    from convite_links cl
+    join users u on u.id = cl.user_id
+   where cl.tenant_id = p_tenant and cl.token = p_token and u.status = 'ativo'
+$$;
+
+grant execute on function app.resolve_convite_link(uuid, text) to app_user, app_superadmin;
+```
+
+Crie `src/Recorrencia.Db/Scripts/0017_resolve_convite_link.sql` com exatamente esse conteúdo. Depois de criar os dois arquivos deste Step, rode `dotnet test tests/Recorrencia.Db.Tests/Recorrencia.Db.Tests.csproj` para confirmar que ambas as migrações aplicam sem erro antes de seguir para os próximos steps -- os testes de `ConviteLinkTests.cs` (Step 2) dependem das duas para passar.
 
 - [ ] **Step 1: Adicionar `LinkBuilder.Indicar`**
 
@@ -792,7 +846,8 @@ Crie `tests/Recorrencia.Api.Tests/ConviteLinkTests.cs`:
 ```csharp
 namespace Recorrencia.Api.Tests;
 
-public class ConviteLinkTests(ApiFixture api) : IClassFixture<ApiFixture>
+[Collection(ApiCollection.Name)]
+public class ConviteLinkTests(ApiFixture api)
 {
     public sealed record ConviteLinkDto(string Url);
     public sealed record ConviteLinkPublicoDto(string IndicadorNome, string TenantNome);
@@ -886,6 +941,12 @@ public static class ConviteLinkEndpoints
         public string Token { get; set; } = "";
     }
 
+    private sealed class ResolvedLinkRow
+    {
+        public Guid UserId { get; set; }
+        public string Nome { get; set; } = "";
+    }
+
     public static void MapConviteLinkEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/convite-links/me", MeAsync).RequireUser();
@@ -922,16 +983,16 @@ public static class ConviteLinkEndpoints
     private static async Task<IResult> PublicoAsync(string token, RequestContext request, Database db, CancellationToken ct)
     {
         var tenant = request.RequireTenant();
-        var indicadorNome = await db.InTenantAsync(tenant, null, tx => tx.QuerySingleOrDefaultAsync<string>(
-            """
-            select u.name from convite_links cl join users u on u.id = cl.user_id
-             where cl.tenant_id = @tenant and cl.token = @token and u.status = 'ativo'
-            """,
-            new { tenant, token }), ct);
-        if (indicadorNome is null)
+        // app.resolve_convite_link (Step 0) does this join as SECURITY DEFINER, bypassing RLS
+        // internally -- an anonymous session can't see any row of `users` directly (0011_rls.sql's
+        // users_select has no anonymous branch), so a plain join here would silently return zero
+        // rows every time, token valid or not.
+        var resolved = await db.InTenantAsync(tenant, null, tx => tx.QuerySingleOrDefaultAsync<ResolvedLinkRow>(
+            "select * from app.resolve_convite_link(@tenant, @token)", new { tenant, token }), ct);
+        if (resolved is null)
             throw new ApiProblem(StatusCodes.Status404NotFound, "convite.link_invalido");
 
-        return Results.Ok(new ConviteLinkPublicoResponse(indicadorNome, request.TenantName!));
+        return Results.Ok(new ConviteLinkPublicoResponse(resolved.Nome, request.TenantName!));
     }
 }
 ```
@@ -970,7 +1031,7 @@ git commit -m "feat(api): add GET /convite-links/me and the public token lookup"
 - Test: `tests/Recorrencia.Api.Tests/SolicitacaoCadastroTests.cs`
 
 **Interfaces:**
-- Consumes: a mesma query de resolução de token da Task 4 (`convite_links` join `users`) -- duplicada aqui propositalmente, já que o endpoint público de submissão precisa resolver o `indicador_user_id`, não só o nome, então não reaproveita `ConviteLinkEndpoints.PublicoAsync` diretamente.
+- Consumes: `app.resolve_convite_link(p_tenant, p_token)` (Task 4, Step 0b) -- a mesma função SQL, chamada aqui em vez de duplicada, já que resolver `indicador_user_id` sob uma sessão anônima tem exatamente o mesmo problema de RLS que `ConviteLinkEndpoints.PublicoAsync` já resolve.
 - Produces: `POST /convite-links/{token}/solicitacoes` (público) devolve `201 { id }` ou `404 convite.link_invalido` / `429 auth.too_many_attempts` / `400 request.invalid`. A Task 6 insere `ListarAsync`/`AprovarAsync`/`RejeitarAsync` no mesmo arquivo, no mesmo `MapSolicitacaoCadastroEndpoints`.
 
 - [ ] **Step 1: Escrever os testes que falham**
@@ -980,7 +1041,8 @@ Crie `tests/Recorrencia.Api.Tests/SolicitacaoCadastroTests.cs`:
 ```csharp
 namespace Recorrencia.Api.Tests;
 
-public class SolicitacaoCadastroTests(ApiFixture api) : IClassFixture<ApiFixture>
+[Collection(ApiCollection.Name)]
+public class SolicitacaoCadastroTests(ApiFixture api)
 {
     private static readonly object CorpoValido = new
     {
@@ -1072,6 +1134,7 @@ public static class SolicitacaoCadastroEndpoints
     private sealed class IndicadorRow
     {
         public Guid UserId { get; set; }
+        public string Nome { get; set; } = "";
     }
 
     public static void MapSolicitacaoCadastroEndpoints(this IEndpointRouteBuilder app)
@@ -1106,21 +1169,28 @@ public static class SolicitacaoCadastroEndpoints
                 || logradouro.Length == 0 || numero.Length == 0 || bairro.Length == 0 || cidade.Length == 0 || estado.Length == 0)
                 throw new ApiProblem(StatusCodes.Status400BadRequest, "request.invalid");
 
+            // app.resolve_convite_link (Task 4, Step 0b) -- não um join direto com `users`: uma
+            // sessão anônima não vê nenhuma linha de `users` via RLS, então um join aqui devolveria
+            // zero linhas sempre, token válido ou não. Mesma função que ConviteLinkEndpoints.PublicoAsync usa.
             var indicador = await db.InTenantAsync(tenant, null, tx => tx.QuerySingleOrDefaultAsync<IndicadorRow>(
-                """
-                select cl.user_id from convite_links cl join users u on u.id = cl.user_id
-                 where cl.tenant_id = @tenant and cl.token = @token and u.status = 'ativo'
-                """,
+                "select * from app.resolve_convite_link(@tenant, @token)",
                 new { tenant, token }), ct) ?? throw new ApiProblem(StatusCodes.Status404NotFound, "convite.link_invalido");
 
-            var id = await db.InTenantAsync(tenant, null, tx => tx.QuerySingleAsync<Guid>(
+            // O id é gerado aqui, não via "returning" -- sob RLS, RETURNING é filtrado pelas
+            // policies de SELECT da tabela, e essa sessão é anônima (db.InTenantAsync(tenant,
+            // null, ...)): sem uma policy de select anônimo (que não existe, e não deveria
+            // existir -- exporia CPF/endereço/e-mail de todo mundo no tenant), um insert com
+            // "returning id" simplesmente devolveria zero linhas e QuerySingleAsync lançaria.
+            // Gerar o id em C# (mesmo padrão de UserEndpoints.InviteAsync) evita o problema
+            // completamente -- não é preciso ler a linha de volta pra saber o id que ela tem.
+            var id = Guid.CreateVersion7();
+            await db.InTenantAsync(tenant, null, tx => tx.ExecuteAsync(
                 """
                 insert into solicitacoes_cadastro
-                  (tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, complemento, bairro, cidade, estado)
-                values (@tenant, @indicadorId, @nome, @cpf, @celular, @email, @cep, @logradouro, @numero, @complemento, @bairro, @cidade, @estado)
-                returning id
+                  (id, tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, complemento, bairro, cidade, estado)
+                values (@id, @tenant, @indicadorId, @nome, @cpf, @celular, @email, @cep, @logradouro, @numero, @complemento, @bairro, @cidade, @estado)
                 """,
-                new { tenant, indicadorId = indicador.UserId, nome, cpf, celular, email, cep, logradouro, numero, complemento, bairro, cidade, estado }), ct);
+                new { id, tenant, indicadorId = indicador.UserId, nome, cpf, celular, email, cep, logradouro, numero, complemento, bairro, cidade, estado }), ct);
 
             throttle.Complete(keys, false);
             return Results.Created($"/solicitacoes-cadastro/{id}", new { id });
@@ -1227,8 +1297,19 @@ Adicione à mesma classe `SolicitacaoCadastroTests` (Task 5):
         var (id, email) = await SubmitPendingAsync(s, token, "99988877766");
 
         api.Hinova.ProximoCodigoCadastrado = "555";
+        // AprovarAsync also looks up the INDICADOR (código "311", from LinkTokenAsync above) via
+        // BuscarVoluntarioAsync, to read their cooperativa codes for CadastrarVoluntarioRequest --
+        // without this, the fake returns null for that lookup and approval 409s with
+        // solicitacao.indicador_sem_hinova before ever reaching CadastrarVoluntarioAsync.
+        api.Hinova.BuscarPorChave["311"] = new HinovaVoluntarioDetalhe("311", "João Silva", "11111111111", ["1"]);
         var admin = api.Client(s.Slug);
         await admin.LoginAsync($"admin@{s.Slug}.local", ApiFixture.Password);
+        // HinovaAuth.GetTokenUsuarioAsync (Task 2) requires a saved hinova_credenciais row before
+        // it will call AutenticarAsync -- DevSeed/SeedAsync never seeds one, so approval would
+        // otherwise fail with 400 hinova.nao_configurado before ever reaching FakeHinovaClient.
+        // PUT validates against api.Hinova.AutenticarAsync first (accepts anything unless
+        // RejectAuth is set), same as HinovaCredenciaisTests already does.
+        await admin.PutAsync("/integracoes/hinova/credenciais", new { usuario = "usuario", senha = "senha", tokenSga = "token" });
         var response = await admin.PostAsync($"/solicitacoes-cadastro/{id}/aprovar");
         await ApiClient.ExpectAsync(response, HttpStatusCode.OK);
 
@@ -1257,6 +1338,7 @@ Adicione à mesma classe `SolicitacaoCadastroTests` (Task 5):
 
         var admin = api.Client(s.Slug);
         await admin.LoginAsync($"admin@{s.Slug}.local", ApiFixture.Password);
+        await admin.PutAsync("/integracoes/hinova/credenciais", new { usuario = "usuario", senha = "senha", tokenSga = "token" });
         var response = await admin.PostAsync($"/solicitacoes-cadastro/{id}/aprovar");
 
         await ApiClient.ExpectAsync(response, HttpStatusCode.Conflict);

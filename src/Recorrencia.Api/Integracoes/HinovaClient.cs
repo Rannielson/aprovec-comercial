@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
@@ -47,6 +48,55 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
     private static string? FirstWithDigits(params string?[] candidates) =>
         candidates.FirstOrDefault(c => c is not null && c.Any(char.IsDigit));
 
+    public async Task<HinovaVoluntarioDetalhe?> BuscarVoluntarioAsync(string tokenUsuario, string cpfOuCodigo, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"buscar/voluntario/{Uri.EscapeDataString(cpfOuCodigo)}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
+
+        using var response = await http.SendAsync(request, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadFromJsonAsync<BuscarVoluntarioDto>(cancellationToken: ct);
+        return body is null ? null : new HinovaVoluntarioDetalhe(
+            body.CodigoVoluntario, body.Nome, body.Cpf,
+            (body.Cooperativas ?? []).Select(c => c.CodigoCooperativa).ToList());
+    }
+
+    public async Task<string> CadastrarVoluntarioAsync(string tokenUsuario, CadastrarVoluntarioRequest request, CancellationToken ct)
+    {
+        // Not `using` -- disposing an HttpRequestMessage disposes its Content too, which would
+        // tear down the JsonContent's buffer before callers/tests can inspect what was sent.
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, "voluntario/cadastrar")
+        {
+            Content = JsonContent.Create(new
+            {
+                nome = request.Nome,
+                cpf = request.Cpf,
+                celular = request.Celular,
+                email = request.Email,
+                logradouro = request.Logradouro,
+                numero = request.Numero,
+                complemento = request.Complemento,
+                bairro = request.Bairro,
+                cidade = request.Cidade,
+                estado = request.Estado,
+                cep = request.Cep,
+                obs = request.Obs,
+                codigo_voluntario_vinculado = request.CodigoVoluntarioVinculado,
+                cooperativas = request.CooperativaCodigos.Select(c => new { codigo_cooperativa = c }).ToList(),
+            }),
+        };
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
+
+        using var response = await http.SendAsync(httpRequest, ct);
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content.ReadFromJsonAsync<CadastrarResponseDto>(cancellationToken: ct);
+        return result?.CodigoVoluntario ?? throw new InvalidOperationException("Hinova não retornou codigo_voluntario ao cadastrar.");
+    }
+
     private sealed record AutenticarResponse([property: JsonPropertyName("token_usuario")] string TokenUsuario);
 
     private sealed record CooperativaDto([property: JsonPropertyName("nome_cooperativa")] string NomeCooperativa);
@@ -59,4 +109,14 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
         [property: JsonPropertyName("celular")] string? Celular,
         [property: JsonPropertyName("telefone_comercial")] string? TelefoneComercial,
         [property: JsonPropertyName("cooperativas")] List<CooperativaDto>? Cooperativas);
+
+    private sealed record BuscarVoluntarioDto(
+        [property: JsonPropertyName("codigo_voluntario")] string CodigoVoluntario,
+        [property: JsonPropertyName("nome")] string Nome,
+        [property: JsonPropertyName("cpf")] string Cpf,
+        [property: JsonPropertyName("cooperativas")] List<CooperativaCodigoDto>? Cooperativas);
+
+    private sealed record CooperativaCodigoDto([property: JsonPropertyName("codigo_cooperativa")] string CodigoCooperativa);
+
+    private sealed record CadastrarResponseDto([property: JsonPropertyName("codigo_voluntario")] string CodigoVoluntario);
 }

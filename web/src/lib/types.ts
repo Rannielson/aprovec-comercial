@@ -102,3 +102,25 @@ export type CommissionEntry = {
 };
 
 export type Fechamento = { competencia: string; status: string; confirmadoEm: string | null; provisionadoEm: string | null };
+
+export type ConviteLink = { url: string };
+
+export type ConviteLinkPublico = { indicadorNome: string; tenantNome: string };
+
+export type SolicitacaoCadastro = {
+  id: string;
+  nome: string;
+  cpf: string;
+  celular: string;
+  email: string;
+  cep: string;
+  logradouro: string;
+  numero: string;
+  complemento: string | null;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  indicadorUserId: string;
+  indicadorNome: string;
+  criadoEm: string;
+};

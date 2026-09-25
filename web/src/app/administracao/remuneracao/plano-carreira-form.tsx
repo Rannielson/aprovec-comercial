@@ -117,7 +117,14 @@ export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
       <p className="muted">Deixe em branco se este plano não tem valor extra fixo.</p>
 
       <label className="inline">
-        <input type="checkbox" checked={recorrenciaAtiva} onChange={(e) => setRecorrenciaAtiva(e.target.checked)} />
+        <input
+          type="checkbox"
+          checked={recorrenciaAtiva}
+          onChange={(e) => {
+            setRecorrenciaAtiva(e.target.checked);
+            if (!e.target.checked) setRegras([]);
+          }}
+        />
         Ativar recorrência adicional (própria/upline)
       </label>
       {recorrenciaAtiva && (

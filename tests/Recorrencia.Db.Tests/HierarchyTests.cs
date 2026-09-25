@@ -197,4 +197,42 @@ public class HierarchyTests(PostgresFixture db)
             c.ExecuteAsync("update users set status = 'desligado' where id = @u", new { u }, tx));
         Assert.Equal(1, affected);
     }
+
+    // Fix for the PUT /users/{id} 403 regression: app.users_column_guard() used to forbid
+    // changing name/email unconditionally, with no permission check at all. It now mirrors
+    // the supervisor_id/status blocks by gating name/email changes on 'usuarios.convidar',
+    // the same permission that already gates PUT /users/{id} at the route level.
+
+    [Fact]
+    public async Task Without_usuarios_convidar_changing_name_or_email_is_rejected()
+    {
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var u = await _seed.UserAsync(t, "Sem permissão");
+        var role = await _seed.RoleAsync(t, "Só estrutura", ("estrutura.editar", null));
+        await _seed.AssignRoleAsync(t, u, role);
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(t, u, (c, tx) =>
+            c.ExecuteAsync("update users set name = 'Novo Nome' where id = @u", new { u }, tx)));
+        Assert.Equal("auth.forbidden", ex.MessageText);
+    }
+
+    [Fact]
+    public async Task With_usuarios_convidar_changing_name_and_email_succeeds()
+    {
+        // users_update RLS (0011_rls.sql) only lets estrutura.editar/usuarios.desligar holders
+        // reach a row for update at all; usuarios.convidar alone can insert (invite) but not
+        // update. So this role also needs estrutura.editar to get past RLS, isolating what's
+        // under test here to the column guard trigger's own name/email permission check.
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var u = await _seed.UserAsync(t, "Com permissão");
+        var role = await _seed.RoleAsync(t, "Convida", ("estrutura.editar", null), ("usuarios.convidar", null));
+        await _seed.AssignRoleAsync(t, u, role);
+
+        var affected = await db.AsAppUserAsync(t, u, (c, tx) =>
+            c.ExecuteAsync(
+                "update users set name = 'Novo Nome', email = 'novo@teste.local' where id = @u", new { u }, tx));
+        Assert.Equal(1, affected);
+    }
 }

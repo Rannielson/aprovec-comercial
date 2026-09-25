@@ -80,6 +80,8 @@ public static class UserEndpoints
         var hasHinovaFields = body.CodigoVoluntario is not null || body.NomeHinova is not null || body.CpfHinova is not null;
         if (hasHinovaFields && !mine.Has("integracoes.gerenciar"))
             throw new ApiProblem(StatusCodes.Status403Forbidden, "auth.forbidden");
+        if (hasHinovaFields && (body.CodigoVoluntario is null || body.NomeHinova is null || body.CpfHinova is null))
+            throw new ApiProblem(StatusCodes.Status400BadRequest, "hinova.campos_incompletos");
 
         var id = Guid.CreateVersion7();
         var token = Tokens.New();

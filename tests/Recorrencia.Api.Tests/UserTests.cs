@@ -466,4 +466,21 @@ public class UserTests(ApiFixture api)
 
         await ApiClient.ExpectAsync(response, HttpStatusCode.Created);
     }
+
+    [Fact]
+    public async Task Partial_hinova_fields_are_rejected_with_a_clean_error()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+
+        var response = await admin.PostAsync("/users", new
+        {
+            name = "Incompleto",
+            email = $"incompleto@{s.Slug}.local",
+            codigoVoluntario = "999",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("hinova.campos_incompletos", await ApiClient.CodeAsync(response));
+    }
 }

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Icon, type IconName } from './components/app-icon';
 import type { Me } from '@/lib/types';
 
-export type ActivePage = 'overview' | 'wallet' | 'commissions' | 'closing' | 'settings' | 'arvore' | 'participantes' | 'remuneracao';
+export type ActivePage = 'overview' | 'wallet' | 'commissions' | 'closing' | 'settings' | 'arvore' | 'participantes' | 'remuneracao' | 'convites';
 
 const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string | null; permission?: string; minScope?: string }[] = [
   { id: 'overview', icon: 'grid', label: 'Minha recorrência', href: '/' },
@@ -15,6 +15,7 @@ const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string |
   // Coordenador ('tenant' scope) and Administrador -- Consultor gets Participantes only.
   { id: 'arvore', icon: 'people', label: 'Árvore comissionada', href: '/administracao/arvore', permission: 'estrutura.visualizar', minScope: 'tenant' },
   { id: 'participantes', icon: 'people', label: 'Participantes', href: '/administracao/participantes', permission: 'estrutura.visualizar' },
+  { id: 'convites', icon: 'people', label: 'Convites', href: '/administracao/convites', permission: 'usuarios.convidar' },
   { id: 'remuneracao', icon: 'shield', label: 'Remuneração', href: null },
 ];
 
@@ -26,9 +27,19 @@ const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string |
 // admin menu omits it: only Administrador holds fechamento.confirmar/provisionar
 // (0006_rbac_catalog.sql), so this is the only page that can host those actions -- without it, nothing
 // in the UI could ever confirm or provisionar a competência.
-const ADMIN_ONLY_NAV_IDS: ActivePage[] = ['arvore', 'participantes', 'remuneracao', 'settings', 'closing'];
+const ADMIN_ONLY_NAV_IDS: ActivePage[] = ['arvore', 'participantes', 'convites', 'remuneracao', 'settings', 'closing'];
 
-export function AppShell({ me, active, children }: { me: Me; active: ActivePage; children: React.ReactNode }) {
+export function AppShell({
+  me,
+  active,
+  children,
+  convitesPendentes,
+}: {
+  me: Me;
+  active: ActivePage;
+  children: React.ReactNode;
+  convitesPendentes?: number;
+}) {
   const initials = me.name.split(' ').slice(0, 2).map((part) => part[0]).join('');
   const activeItem = NAV_ITEMS.find((item) => item.id === active);
   // Only Administrador (and nothing else) gets the exclusive admin console; anyone holding a
@@ -60,6 +71,7 @@ export function AppShell({ me, active, children }: { me: Me; active: ActivePage;
               >
                 <Icon name={item.icon} />
                 <span>{item.label}</span>
+                {item.id === 'convites' && !!convitesPendentes && <span className="nav-count">{convitesPendentes}</span>}
               </Link>
             ) : (
               <span key={item.id} className="nav-item disabled">

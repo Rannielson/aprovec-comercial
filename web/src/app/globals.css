@@ -110,6 +110,7 @@ tr.subtotal td { font-weight: 600; }
 .nav-item.disabled:hover { background: none; color: #f4cdca; }
 .nav-item .icon { width: 19px; height: 19px; }
 .nav-soon { margin-left: auto; background: #fff; color: #9d1111; border-radius: 5px; font-size: 0.6rem; padding: 2px 6px; white-space: nowrap; }
+.nav-count { margin-left: auto; background: #fff; color: #9d1111; border-radius: 5px; font-size: 0.65rem; font-weight: 600; line-height: 18px; min-width: 18px; text-align: center; }
 
 .sidebar-bottom { margin-top: auto; }
 .sidebar-note { padding: 30px 16px 10px; font-size: 0.7rem; line-height: 1.9; color: #f4cdca; }
@@ -142,6 +143,7 @@ tr.subtotal td { font-weight: 600; }
   .sidebar nav { flex-direction: row; width: 100%; margin-top: 12px; gap: 4px; }
   .nav-item { flex: 1; justify-content: center; min-height: 42px; font-size: 0.7rem; padding: 0 7px; }
   .nav-soon { display: none; }
+  .nav-count { display: none; }
   .sidebar-bottom { display: none; }
   .seller-logout { width: 100%; text-align: center; padding: 8px 0 4px; }
   .seller-logout button { justify-content: center; width: 100%; }

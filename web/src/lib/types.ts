@@ -86,3 +86,19 @@ export type HinovaMapeamento = {
 };
 
 export type UserNode = { id: string; name: string; email: string; status: string; supervisorId: string | null; roleIds: string[] };
+
+export type CommissionEntry = {
+  boletoId: string;
+  originUserId: string;
+  originName: string | null;
+  ruleType: 'own' | 'upline' | 'global';
+  level: number | null;
+  rate: number;
+  base: number;
+  amount: number;
+  associadoNome: string | null;
+  placa: string | null;
+  pagoEm: string | null;
+};
+
+export type Fechamento = { competencia: string; status: string; confirmadoEm: string | null; provisionadoEm: string | null };

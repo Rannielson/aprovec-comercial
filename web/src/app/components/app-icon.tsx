@@ -1,4 +1,4 @@
-export type IconName = 'grid' | 'wallet' | 'calendar' | 'logout' | 'search' | 'back' | 'chevron' | 'info' | 'settings' | 'link' | 'trash' | 'people' | 'shield' | 'plus' | 'close' | 'arrow';
+export type IconName = 'grid' | 'wallet' | 'calendar' | 'logout' | 'search' | 'back' | 'chevron' | 'info' | 'settings' | 'link' | 'trash' | 'people' | 'shield' | 'plus' | 'close' | 'arrow' | 'percent' | 'check' | 'receipt';
 
 const svgProps = {
   viewBox: '0 0 24 24',
@@ -123,6 +123,27 @@ export function Icon({ name, className }: { name: IconName; className?: string }
       return (
         <svg className={cls} {...svgProps}>
           <path d="M5 12h14m-5-5 5 5-5 5" />
+        </svg>
+      );
+    case 'percent':
+      return (
+        <svg className={cls} {...svgProps}>
+          <path d="M5 19 19 5" />
+          <circle cx={7} cy={7} r={2.2} />
+          <circle cx={17} cy={17} r={2.2} />
+        </svg>
+      );
+    case 'check':
+      return (
+        <svg className={cls} {...svgProps}>
+          <path d="m5 12 5 5 9-10" />
+        </svg>
+      );
+    case 'receipt':
+      return (
+        <svg className={cls} {...svgProps}>
+          <path d="M6 3h12v18l-2.5-1.5L13 21l-2.5-1.5L8 21l-2-1.5V3Z" />
+          <path d="M9 8h6M9 12h6M9 16h4" />
         </svg>
       );
   }

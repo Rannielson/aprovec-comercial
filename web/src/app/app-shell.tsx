@@ -2,12 +2,13 @@ import Link from 'next/link';
 import { Icon, type IconName } from './components/app-icon';
 import type { Me } from '@/lib/types';
 
-export type ActivePage = 'overview' | 'wallet' | 'closing' | 'settings' | 'arvore' | 'participantes' | 'remuneracao';
+export type ActivePage = 'overview' | 'wallet' | 'commissions' | 'closing' | 'settings' | 'arvore' | 'participantes' | 'remuneracao';
 
 const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string | null; permission?: string }[] = [
   { id: 'overview', icon: 'grid', label: 'Minha recorrência', href: '/' },
   { id: 'wallet', icon: 'wallet', label: 'Minha carteira', href: '/carteira' },
-  { id: 'closing', icon: 'calendar', label: 'Fechamento', href: null },
+  { id: 'commissions', icon: 'percent', label: 'Comissões', href: '/comissoes' },
+  { id: 'closing', icon: 'calendar', label: 'Fechamento', href: '/fechamento' },
   { id: 'settings', icon: 'settings', label: 'Configurações', href: '/configuracoes/integracoes', permission: 'integracoes.gerenciar' },
   { id: 'arvore', icon: 'people', label: 'Árvore comissionada', href: '/administracao/arvore', permission: 'estrutura.visualizar' },
   { id: 'participantes', icon: 'people', label: 'Participantes', href: '/administracao/participantes', permission: 'estrutura.visualizar' },
@@ -16,10 +17,13 @@ const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string |
 
 // The mockup gives Administrador its own exclusive console, not the union of every permission-gated
 // item -- Administrador holds every permission, so the permission-based filter below would otherwise
-// show them everything (Minha carteira, Fechamento, etc. included). Configurações stays in: it's
-// where the Hinova/SGA integration (credentials, voluntário mapping) lives, and only Administrador
-// can reach it (integracoes.gerenciar is administrador-only).
-const ADMIN_ONLY_NAV_IDS: ActivePage[] = ['arvore', 'participantes', 'remuneracao', 'settings'];
+// show them everything (Minha carteira, Comissões, etc. included). Configurações stays in: it's where
+// the Hinova/SGA integration (credentials, voluntário mapping) lives, and only Administrador can reach
+// it (integracoes.gerenciar is administrador-only). Fechamento stays in too, even though the mockup's
+// admin menu omits it: only Administrador holds fechamento.confirmar/provisionar
+// (0006_rbac_catalog.sql), so this is the only page that can host those actions -- without it, nothing
+// in the UI could ever confirm or provisionar a competência.
+const ADMIN_ONLY_NAV_IDS: ActivePage[] = ['arvore', 'participantes', 'remuneracao', 'settings', 'closing'];
 
 export function AppShell({ me, active, children }: { me: Me; active: ActivePage; children: React.ReactNode }) {
   const initials = me.name.split(' ').slice(0, 2).map((part) => part[0]).join('');

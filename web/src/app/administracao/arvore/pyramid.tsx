@@ -158,8 +158,10 @@ export function Pyramid({
   // Every root's connector drops from the brand card, straight down to the junction line, then across.
   const brandPaths = rootAnchors.map((p) => `M${center} ${bandBottom} V${junctionY} H${p.x} V${p.y}`);
 
-  // Level-2 (avô → neto) bypass connectors: routed past the parent's right edge so they read as a
-  // distinct, second relationship instead of retracing the direct parent→child line down the middle.
+  // Level-2 (avô → neto) bypass connectors: computed for the whole forest, but only the pair(s)
+  // touching the person whose drawer is open are drawn (see `visibleGrandparentEdges` below) — with
+  // every pair always on, a long vertical chain stacks them into one illegible line (real bug, seen
+  // once the tree grew past 3 levels). Selecting a person is how you trace their own 1% relationship.
   const nodesById = new Map(layout.nodes.map((n) => [n.id, n]));
   const grandparentEdges: { grandparent: TreeNode; node: TreeNode }[] = layout.nodes.flatMap((node) => {
     if (node.parentId === null) return [];
@@ -168,6 +170,10 @@ export function Pyramid({
     const grandparent = nodesById.get(parent.parentId);
     return grandparent ? [{ grandparent, node }] : [];
   });
+  const visibleGrandparentEdges =
+    detail?.kind === 'seller'
+      ? grandparentEdges.filter((e) => e.grandparent.id === detail.id || e.node.id === detail.id)
+      : [];
 
   // --- Add panel -------------------------------------------------------------------------------
   const targetNode = target && target !== NOVA_ARVORE ? layout.nodes.find((n) => n.id === target) : undefined;
@@ -291,7 +297,7 @@ export function Pyramid({
                   </g>
                 );
               })}
-              {grandparentEdges.map(({ grandparent, node }) => {
+              {visibleGrandparentEdges.map(({ grandparent, node }) => {
                 const avo = people[grandparent.id];
                 const rate2 = avo.uplineRules.find((r) => r.level === 2)?.rate ?? null;
                 const label = rate2 !== null ? `${formatPercent(rate2)} para ${firstName(avo.name)}` : null;

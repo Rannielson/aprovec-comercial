@@ -22,7 +22,9 @@ public sealed class DevFakeHinovaClient : IHinovaClient
     public Task<IReadOnlyList<HinovaVoluntario>> ListarVoluntariosAsync(string tokenUsuario, CancellationToken ct) =>
         Task.FromResult(Voluntarios);
 
-    private static int _proximoCodigo = 900;
+    // Semeado pelo relógio, não por um literal fixo: um segundo E2E/dev run contra o MESMO banco
+    // persistente não pode gerar um codigo_voluntario que já foi inserido por um run anterior.
+    private static int _proximoCodigo = (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() % 1_000_000) + 10_000;
 
     public Task<HinovaVoluntarioDetalhe?> BuscarVoluntarioAsync(string tokenUsuario, string cpfOuCodigo, CancellationToken ct)
     {
@@ -33,5 +35,5 @@ public sealed class DevFakeHinovaClient : IHinovaClient
     }
 
     public Task<string> CadastrarVoluntarioAsync(string tokenUsuario, CadastrarVoluntarioRequest request, CancellationToken ct) =>
-        Task.FromResult((_proximoCodigo++).ToString());
+        Task.FromResult(Interlocked.Increment(ref _proximoCodigo).ToString());
 }

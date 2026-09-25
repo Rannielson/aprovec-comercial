@@ -1299,6 +1299,12 @@ Adicione à mesma classe `SolicitacaoCadastroTests` (Task 5):
         api.Hinova.ProximoCodigoCadastrado = "555";
         var admin = api.Client(s.Slug);
         await admin.LoginAsync($"admin@{s.Slug}.local", ApiFixture.Password);
+        // HinovaAuth.GetTokenUsuarioAsync (Task 2) requires a saved hinova_credenciais row before
+        // it will call AutenticarAsync -- DevSeed/SeedAsync never seeds one, so approval would
+        // otherwise fail with 400 hinova.nao_configurado before ever reaching FakeHinovaClient.
+        // PUT validates against api.Hinova.AutenticarAsync first (accepts anything unless
+        // RejectAuth is set), same as HinovaCredenciaisTests already does.
+        await admin.PutAsync("/integracoes/hinova/credenciais", new { usuario = "usuario", senha = "senha", tokenSga = "token" });
         var response = await admin.PostAsync($"/solicitacoes-cadastro/{id}/aprovar");
         await ApiClient.ExpectAsync(response, HttpStatusCode.OK);
 
@@ -1327,6 +1333,7 @@ Adicione à mesma classe `SolicitacaoCadastroTests` (Task 5):
 
         var admin = api.Client(s.Slug);
         await admin.LoginAsync($"admin@{s.Slug}.local", ApiFixture.Password);
+        await admin.PutAsync("/integracoes/hinova/credenciais", new { usuario = "usuario", senha = "senha", tokenSga = "token" });
         var response = await admin.PostAsync($"/solicitacoes-cadastro/{id}/aprovar");
 
         await ApiClient.ExpectAsync(response, HttpStatusCode.Conflict);

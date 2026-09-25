@@ -593,4 +593,57 @@ public class UserTests(ApiFixture api)
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("hinova.campos_incompletos", await ApiClient.CodeAsync(response));
     }
+
+    [Fact]
+    public async Task Creating_with_a_password_activates_immediately_without_email()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        var email = $"direta@{s.Slug}.local";
+
+        var created = await admin.PostAsync("/users", new { name = "Cadastro Direto", email, password = "senha-inicial-123" });
+        await ApiClient.ExpectAsync(created, HttpStatusCode.Created);
+        var id = (await created.Content.ReadFromJsonAsync<CreatedDto>(ApiClient.Json))!.Id;
+
+        Assert.Null(api.Emails.LastTo(email));
+
+        var direta = api.Client(s.Slug);
+        await direta.LoginAsync(email, "senha-inicial-123");
+
+        var sees = await admin.GetJsonAsync<List<UserDto>>("/users");
+        Assert.Contains(sees, u => u.Id == id && u.Status == "ativo");
+    }
+
+    [Fact]
+    public async Task Creating_with_a_weak_password_is_rejected()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        var email = $"fraca@{s.Slug}.local";
+
+        var response = await admin.PostAsync("/users", new { name = "X", email, password = "curta" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("auth.weak_password", await ApiClient.CodeAsync(response));
+        Assert.Equal(0, await api.SqlScalarAsync<int>("select count(*) from users where email = @email", new { email }));
+    }
+
+    [Fact]
+    public async Task Creating_with_a_password_and_hinova_fields_links_the_mapping_too()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        var email = $"direta-hinova@{s.Slug}.local";
+
+        var created = await admin.PostAsync("/users", new
+        {
+            name = "Direta Hinova", email, password = "senha-inicial-123",
+            codigoVoluntario = "301", nomeHinova = "Direta Hinova", cpfHinova = "99988877766",
+        });
+        await ApiClient.ExpectAsync(created, HttpStatusCode.Created);
+        var id = (await created.Content.ReadFromJsonAsync<CreatedDto>(ApiClient.Json))!.Id;
+
+        Assert.Equal("301", await api.SqlScalarAsync<string>(
+            "select codigo_voluntario from hinova_voluntario_mapping where user_id = @id", new { id }));
+    }
 }

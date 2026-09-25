@@ -13,7 +13,7 @@ namespace Recorrencia.Api.Users;
 public static class UserEndpoints
 {
     public sealed record InviteUserRequest(string? Name, string? Email, Guid? SupervisorId, Guid[]? RoleIds,
-        string? CodigoVoluntario, string? NomeHinova, string? CpfHinova);
+        string? CodigoVoluntario, string? NomeHinova, string? CpfHinova, string? Password);
     public sealed record SupervisorRequest(Guid? SupervisorId);
     public sealed record UserRolesRequest(Guid[]? RoleIds);
 
@@ -56,7 +56,7 @@ public static class UserEndpoints
     }
 
     private static async Task<IResult> InviteAsync(InviteUserRequest body, RequestContext request, Database db,
-        CurrentPermissions permissions, IEmailSender email, LinkBuilder links, IOptions<AuthOptions> options, CancellationToken ct)
+        CurrentPermissions permissions, IEmailSender email, LinkBuilder links, IOptions<AuthOptions> options, PasswordHasher hasher, CancellationToken ct)
     {
         var tenant = request.RequireTenant();
         var actor = request.RequireUser();
@@ -90,6 +90,13 @@ public static class UserEndpoints
         if (hasHinovaFields && (body.CodigoVoluntario is null || body.NomeHinova is null || body.CpfHinova is null))
             throw new ApiProblem(StatusCodes.Status400BadRequest, "hinova.campos_incompletos");
 
+        string? passwordHash = null;
+        if (body.Password is not null)
+        {
+            PasswordPolicy.Validate(body.Password);
+            passwordHash = hasher.Hash(body.Password);
+        }
+
         var id = Guid.CreateVersion7();
         var token = "";
         await db.InTenantAsync(tenant, actor, async tx =>
@@ -98,18 +105,30 @@ public static class UserEndpoints
             await CreateUserWithRolesAsync(tx, tenant, id, name, address, body.SupervisorId, roleIds);
             if (hasHinovaFields)
                 await LinkHinovaAsync(tx, tenant, id, actor, codigoVoluntario, nomeHinova, cpfHinova);
-            token = await CreateInviteTokenAsync(tx, tenant, actor, id, name, address, body.SupervisorId, roleIds, options.Value.InviteTtlSeconds);
+            if (passwordHash is not null)
+            {
+                await tx.ExecuteAsync("select app.set_password_admin(@id, @passwordHash)", new { id, passwordHash });
+                await WriteAsync(tx, tenant, actor, "users.cadastrar_com_senha", "users", id, null,
+                    new { name, email = address, supervisorId = body.SupervisorId, roleIds });
+            }
+            else
+            {
+                token = await CreateInviteTokenAsync(tx, tenant, actor, id, name, address, body.SupervisorId, roleIds, options.Value.InviteTtlSeconds);
+            }
             return 0;
         }, ct);
 
-        await email.SendAsync(address, "Convite de acesso",
-            EmailTemplates.AccessLink(
-                "Convite de acesso",
-                $"Você foi convidado para acessar a plataforma de {request.TenantName}.",
-                "Definir minha senha",
-                links.SetPassword(request.TenantSlug!, token),
-                "O link vale por 72 horas.",
-                links.Logo(request.TenantSlug!)), ct);
+        if (passwordHash is null)
+        {
+            await email.SendAsync(address, "Convite de acesso",
+                EmailTemplates.AccessLink(
+                    "Convite de acesso",
+                    $"Você foi convidado para acessar a plataforma de {request.TenantName}.",
+                    "Definir minha senha",
+                    links.SetPassword(request.TenantSlug!, token),
+                    "O link vale por 72 horas.",
+                    links.Logo(request.TenantSlug!)), ct);
+        }
         return Results.Created($"/users/{id}", new { id });
     }
 

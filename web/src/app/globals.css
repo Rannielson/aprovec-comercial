@@ -50,6 +50,8 @@ a { color: var(--accent); }
 
 .form { display: grid; gap: 12px; }
 .inline { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.referral-link { display: flex; gap: 8px; align-items: center; }
+.referral-link input { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--muted); font-size: 0.75rem; }
 label { display: grid; gap: 4px; font-size: 0.85rem; color: var(--muted); }
 input, select { font: inherit; color: var(--ink); padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
 button { font: inherit; font-weight: 500; cursor: pointer; padding: 10px 16px; border: 1px solid var(--accent-strong); border-radius: 12px 0 12px 0; background: var(--accent-strong); color: #fff; }

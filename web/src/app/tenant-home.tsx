@@ -1,5 +1,6 @@
 import { AppShell } from './app-shell';
 import { apiFetch } from '@/lib/api';
+import { MeuLinkIndicacao } from './meu-link-indicacao';
 import {
   currentCompetencia,
   formatCompetencia,
@@ -11,7 +12,7 @@ import {
   statusBadgeClass,
   statusLabels,
 } from '@/lib/format';
-import type { Commissions, Me } from '@/lib/types';
+import type { Commissions, ConviteLink, Me } from '@/lib/types';
 
 export async function TenantHome({ competencia }: { competencia?: string }) {
   const me = await apiFetch<Me>('/me');
@@ -25,6 +26,8 @@ export async function TenantHome({ competencia }: { competencia?: string }) {
   ]);
   const own = commissions?.beneficiaries.find((b) => b.userId === me.id) ?? null;
   const previousOwn = previous?.beneficiaries.find((b) => b.userId === me.id) ?? null;
+
+  const conviteLink = await apiFetch<ConviteLink>('/convite-links/me').catch(() => null);
 
   return (
     <AppShell me={me} active="overview">
@@ -57,6 +60,12 @@ export async function TenantHome({ competencia }: { competencia?: string }) {
                 </div>
               ))}
               <span className={statusBadgeClass(commissions.status)}>{statusLabels[commissions.status] ?? commissions.status}</span>
+            </section>
+
+            <section className="card">
+              <h2>Meu link de indicação</h2>
+              <p className="muted">Compartilhe para que novos consultores entrem direto na sua equipe.</p>
+              <MeuLinkIndicacao url={conviteLink?.url ?? null} />
             </section>
 
             <form className="inline" method="get">

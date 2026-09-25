@@ -103,4 +103,6 @@ export type CommissionEntry = {
 
 export type Fechamento = { competencia: string; status: string; confirmadoEm: string | null; provisionadoEm: string | null };
 
+export type ConviteLink = { url: string };
+
 export type ConviteLinkPublico = { indicadorNome: string; tenantNome: string };

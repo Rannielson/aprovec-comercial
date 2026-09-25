@@ -324,4 +324,45 @@ public class AuthFunctionTests(PostgresFixture db)
 
         Assert.Equal(0, await _seed.ScalarAsync<int>("select count(*) from sessions where user_id = @u", new { u }));
     }
+
+    [Fact]
+    public async Task Set_password_admin_rejects_a_user_from_another_tenant()
+    {
+        var t1 = await _seed.TenantAsync();
+        var t2 = await _seed.TenantAsync();
+        var u = await _seed.UserAsync(t2, "De outro tenant", status: "convidado");
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(t1, null, (c, tx) => c.ExecuteAsync(
+            "select app.set_password_admin(@user, @hash)", new { user = u, hash = "novo-hash" }, tx)));
+        Assert.Equal("auth.forbidden", ex.MessageText);
+    }
+
+    [Fact]
+    public async Task Set_password_admin_rejects_a_desligado_user()
+    {
+        var t = await _seed.TenantAsync();
+        var u = await _seed.UserAsync(t, "Desligada", status: "desligado");
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(t, null, (c, tx) => c.ExecuteAsync(
+            "select app.set_password_admin(@user, @hash)", new { user = u, hash = "novo-hash" }, tx)));
+        Assert.Equal("auth.forbidden", ex.MessageText);
+    }
+
+    [Fact]
+    public async Task Set_password_admin_rejects_an_acting_user_without_usuarios_convidar()
+    {
+        // Target is already 'ativo', so no status change happens and users_column_guard has
+        // nothing to object to: only the function's own usuarios.convidar check can reject this.
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var actor = await _seed.UserAsync(t, "Sem convidar");
+        var role = await _seed.RoleAsync(t, "Sem convidar", ("estrutura.editar", null), ("usuarios.desligar", null));
+        await _seed.AssignRoleAsync(t, actor, role);
+        var u = await _seed.UserAsync(t, "Ativa", status: "ativo");
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(t, actor, (c, tx) => c.ExecuteAsync(
+            "select app.set_password_admin(@user, @hash)", new { user = u, hash = "novo-hash" }, tx)));
+        Assert.Equal("auth.forbidden", ex.MessageText);
+        Assert.Equal("hash-de-teste", await _seed.ScalarAsync<string>("select password_hash from users where id = @u", new { u }));
+    }
 }

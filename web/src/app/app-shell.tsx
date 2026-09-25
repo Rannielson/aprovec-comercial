@@ -2,13 +2,16 @@ import Link from 'next/link';
 import { Icon, type IconName } from './components/app-icon';
 import type { Me } from '@/lib/types';
 
-export type ActivePage = 'overview' | 'wallet' | 'closing' | 'settings';
+export type ActivePage = 'overview' | 'wallet' | 'closing' | 'settings' | 'arvore' | 'participantes' | 'remuneracao';
 
 const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string | null; permission?: string }[] = [
   { id: 'overview', icon: 'grid', label: 'Minha recorrência', href: '/' },
   { id: 'wallet', icon: 'wallet', label: 'Minha carteira', href: '/carteira' },
   { id: 'closing', icon: 'calendar', label: 'Fechamento', href: null },
   { id: 'settings', icon: 'settings', label: 'Configurações', href: '/configuracoes/integracoes', permission: 'integracoes.gerenciar' },
+  { id: 'arvore', icon: 'people', label: 'Árvore comissionada', href: '/administracao/arvore', permission: 'estrutura.visualizar' },
+  { id: 'participantes', icon: 'people', label: 'Participantes', href: '/administracao/participantes', permission: 'estrutura.visualizar' },
+  { id: 'remuneracao', icon: 'shield', label: 'Remuneração', href: null },
 ];
 
 export function AppShell({ me, active, children }: { me: Me; active: ActivePage; children: React.ReactNode }) {

@@ -3,7 +3,7 @@ import { AppShell } from '../../app-shell';
 import { ApiError, apiFetch, currentHost } from '@/lib/api';
 import { Icon } from '../../components/app-icon';
 import { messageFor } from '@/lib/errors';
-import { currentCompetencia, formatCompetencia, formatMoney, formatPercent } from '@/lib/format';
+import { currentCompetencia, formatCompetencia, formatMoney, formatPercent, isCompetencia } from '@/lib/format';
 import { treeLayout } from '@/lib/tree-layout';
 import type { Commissions, HinovaVoluntario, Me, UserNode } from '@/lib/types';
 import { NOVA_ARVORE } from './constants';
@@ -13,7 +13,7 @@ import { Pyramid } from './pyramid';
 export default async function ArvorePage({
   searchParams,
 }: {
-  searchParams: Promise<{ root?: string; modo?: string; buscarParticipante?: string; adicionar?: string }>;
+  searchParams: Promise<{ root?: string; modo?: string; buscarParticipante?: string; adicionar?: string; competencia?: string }>;
 }) {
   const host = await currentHost();
   if (host.kind !== 'tenant') notFound();
@@ -32,9 +32,10 @@ export default async function ArvorePage({
     );
   }
 
-  const { root, modo, buscarParticipante, adicionar } = await searchParams;
+  const { root, modo, buscarParticipante, adicionar, competencia: competenciaParam } = await searchParams;
   const mode = modo === 'lista' ? 'lista' : 'arvore';
   const searchQuery = buscarParticipante?.trim() ?? '';
+  const competencia = isCompetencia(competenciaParam) ? competenciaParam : currentCompetencia();
 
   // Each API call below has its own permission; the page degrades instead of failing when one is missing.
   const showValues = has('comissoes.visualizar');
@@ -45,7 +46,6 @@ export default async function ArvorePage({
   const canAddRoot = has('usuarios.convidar') && has('integracoes.gerenciar');
   const canAddChild = canAddRoot && has('estrutura.editar');
 
-  const competencia = currentCompetencia();
   const [users, commissions] = await Promise.all([
     apiFetch<UserNode[]>('/users'),
     showValues ? apiFetch<Commissions>(`/commissions/${competencia}`) : Promise.resolve(null),
@@ -90,6 +90,7 @@ export default async function ArvorePage({
     const p = new URLSearchParams();
     if (selectedRoot) p.set('root', selectedRoot);
     if (nextMode === 'lista') p.set('modo', 'lista');
+    if (competenciaParam) p.set('competencia', competencia);
     const qs = p.toString();
     return qs ? `/administracao/arvore?${qs}` : '/administracao/arvore';
   }
@@ -120,6 +121,15 @@ export default async function ArvorePage({
                 {roots.length === 1 ? 'árvore' : 'árvores'} · competência de {formatCompetencia(competencia)}
                 {canAddChild && mode === 'arvore' ? ' · Use o + abaixo de cada pessoa para adicionar um indicado.' : ''}
               </p>
+              <form className="inline" method="get">
+                {selectedRoot && <input type="hidden" name="root" value={selectedRoot} />}
+                {mode === 'lista' && <input type="hidden" name="modo" value="lista" />}
+                <label>
+                  Competência
+                  <input type="month" name="competencia" defaultValue={competencia} />
+                </label>
+                <button type="submit" className="secondary">Ver</button>
+              </form>
             </div>
             <div className="segmented" role="group" aria-label="Visualização da estrutura">
               <a href={hrefFor('arvore')} className={mode === 'arvore' ? 'selected' : undefined} aria-current={mode === 'arvore' ? 'page' : undefined}>

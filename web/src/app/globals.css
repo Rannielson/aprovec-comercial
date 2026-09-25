@@ -229,8 +229,10 @@ tr.subtotal td { font-weight: 600; }
 .pyramid-lines path { fill: none; stroke-linejoin: round; stroke-linecap: round; }
 .brand-connector { stroke: #bbb0b3; stroke-width: 1.4; stroke-dasharray: 5 5; }
 .direct-connector { stroke: #b7595d; stroke-width: 1.5; }
+.upline2-connector { stroke: #b98a27; stroke-width: 1.4; stroke-dasharray: 4 4; }
 .connector-label-bg { fill: #faf9f8; }
 .connector-label { fill: #a04853; font-size: 9px; font-family: Poppins, Arial, sans-serif; text-anchor: middle; }
+.connector-label.upline2 { fill: #a5761f; }
 
 /* Topo da floresta: identidade da APROVEC, não um papel de comissão — só ancora os conectores das raízes. */
 .pyramid-brand { position: absolute; width: 350px; height: 110px; border-radius: 16px 0 16px 0; background: var(--brand-red-dark); box-shadow: 0 6px 18px #3210200c; display: flex; align-items: center; justify-content: center; }

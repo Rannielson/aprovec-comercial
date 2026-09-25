@@ -778,6 +778,7 @@ git commit -m "refactor(api): extract reusable user-creation helpers from POST /
 ### Task 4: Endpoints de link de indicação (`/convite-links/*`)
 
 **Files:**
+- Create: `src/Recorrencia.Db/Scripts/0016_hinova_voluntario_mapping_self_select.sql`
 - Create: `src/Recorrencia.Api/Convites/ConviteLinkEndpoints.cs`
 - Modify: `src/Recorrencia.Api/Email/LinkBuilder.cs`
 - Modify: `src/Recorrencia.Api/Program.cs`
@@ -786,6 +787,22 @@ git commit -m "refactor(api): extract reusable user-creation helpers from POST /
 **Interfaces:**
 - Consumes: nada de tasks anteriores (independente das Tasks 2/3).
 - Produces: `GET /convite-links/me` (autenticado, sem permissão extra) devolve `{ url }` ou `409 convite.indicador_sem_hinova`; `GET /convite-links/{token}` (público) devolve `{ indicadorNome, tenantNome }` ou `404 convite.link_invalido`. A Task 5 consome o segundo desses (para a página pública resolver o token antes de aceitar o formulário) e a lógica de resolver `indicador_user_id` a partir do token (mesma query).
+
+- [ ] **Step 0: Migração — consultor precisa ver o próprio vínculo Hinova**
+
+**Descoberto durante a execução deste plano, não estava no design original:** a única policy de `hinova_voluntario_mapping` (`0014_hinova_integracao.sql`) restringe QUALQUER acesso a quem tem `integracoes.gerenciar` -- só o Administrador. Um consultor comum não consegue ver nem a própria linha, o que quebra `MeAsync` (Step 3 abaixo): a checagem "esse usuário já tem vínculo Hinova?" sempre voltaria vazia para um consultor real, mesmo com o vínculo existindo. Corrija com uma migração nova (não edite `0014`, que já está em produção):
+
+```sql
+-- hinova_voluntario_mapping's única policy (0014_hinova_integracao.sql) restringe QUALQUER
+-- acesso a integracoes.gerenciar (Administrador) -- um consultor não consegue ver nem a própria
+-- linha, o que a Fase 5 (indicação) precisa: saber se o próprio usuário já está vinculado à
+-- Hinova, para decidir se mostra o link de indicação. Policy nova, só de SELECT, para a própria
+-- linha -- insert/update/delete continuam exclusivos do Administrador via a policy já existente.
+create policy hinova_voluntario_mapping_self_select on hinova_voluntario_mapping for select to app_user
+  using (user_id = app.current_user_id());
+```
+
+Crie `src/Recorrencia.Db/Scripts/0016_hinova_voluntario_mapping_self_select.sql` com exatamente esse conteúdo. Rode `dotnet test tests/Recorrencia.Db.Tests/Recorrencia.Db.Tests.csproj` para confirmar que a migração aplica sem erro antes de seguir para os próximos steps -- os testes de `ConviteLinkTests.cs` (Step 2) dependem dela para passar.
 
 - [ ] **Step 1: Adicionar `LinkBuilder.Indicar`**
 
@@ -803,7 +820,8 @@ Crie `tests/Recorrencia.Api.Tests/ConviteLinkTests.cs`:
 ```csharp
 namespace Recorrencia.Api.Tests;
 
-public class ConviteLinkTests(ApiFixture api) : IClassFixture<ApiFixture>
+[Collection(ApiCollection.Name)]
+public class ConviteLinkTests(ApiFixture api)
 {
     public sealed record ConviteLinkDto(string Url);
     public sealed record ConviteLinkPublicoDto(string IndicadorNome, string TenantNome);
@@ -991,7 +1009,8 @@ Crie `tests/Recorrencia.Api.Tests/SolicitacaoCadastroTests.cs`:
 ```csharp
 namespace Recorrencia.Api.Tests;
 
-public class SolicitacaoCadastroTests(ApiFixture api) : IClassFixture<ApiFixture>
+[Collection(ApiCollection.Name)]
+public class SolicitacaoCadastroTests(ApiFixture api)
 {
     private static readonly object CorpoValido = new
     {

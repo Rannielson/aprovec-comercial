@@ -35,6 +35,13 @@ const messages: Record<string, string> = {
   'solicitacao.cpf_ja_cadastrado': 'Esse CPF já está cadastrado na Hinova. Resolva manualmente antes de aprovar.',
   'solicitacao.indicador_sem_hinova': 'O indicador não está mais vinculado a um código de voluntário na Hinova.',
   'solicitacao.cpf_invalido': 'Informe um CPF válido (11 dígitos).',
+  'plano_carreira.name_required': 'Informe o nome do plano.',
+  'plano_carreira.dados_invalidos': 'Confira os dados do plano — algum campo está inválido.',
+  'plano_carreira.meta_minima_incompleta': 'Preencha a quantidade mínima e a fonte de data juntas, ou deixe as duas em branco.',
+  'plano_carreira.recorrencia_inconsistente': 'Ative a recorrência para informar as taxas, ou remova as taxas se ela estiver desativada.',
+  'plano_carreira.regra_duplicada': 'Já existe uma regra de recorrência para esse tipo e nível.',
+  'plano_carreira.not_found': 'Plano de carreira não encontrado.',
+  'plano_carreira.em_uso': 'Este plano está atribuído a participantes — remova a atribuição antes de excluir.',
 };
 
 export function messageFor(code: string): string {

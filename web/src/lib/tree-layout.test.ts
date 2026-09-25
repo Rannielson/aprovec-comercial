@@ -154,6 +154,45 @@ describe('treeLayout', () => {
     expect(leftmostChildX).toBe(padding);
   });
 
+  it('starts the first row below the gestão global band, like the mockup', () => {
+    const result = treeLayout([{ id: 'a', parentId: null }]);
+    const a = result.nodes[0];
+    expect(result.manager).toEqual({ x: 940 / 2 - 175, y: 26, width: 350, height: 110 });
+    expect(a.y).toBe(202);
+    expect(a.y).toBeGreaterThan(result.manager.y + result.manager.height);
+    expect(result.height).toBe(Math.max(460, 202 + 154 + 82));
+  });
+
+  it('keeps the newRoot placeholder inside the canvas for a wide forest', () => {
+    const people: TreePerson[] = [];
+    for (const root of ['a', 'b']) {
+      people.push({ id: root, parentId: null });
+      for (let i = 1; i <= 4; i++) people.push({ id: `${root}${i}`, parentId: root });
+    }
+    const result = treeLayout(people, { newRoot: true });
+    expect(result.newRoot).not.toBeNull();
+    const rightmost = Math.max(...result.nodes.map((n) => n.x));
+    // One rootGap to the right of the last tree's rightmost card.
+    expect(result.newRoot!.x).toBe(rightmost + 226 + 88);
+    expect(result.newRoot!.x + result.nodeWidth).toBe(result.width - 40);
+  });
+
+  it('centers the newRoot placeholder alone when there are no roots yet', () => {
+    const result = treeLayout([], { newRoot: true });
+    expect(result.newRoot).toEqual({ x: (940 - 226) / 2, y: 202 });
+  });
+
+  it('suppresses the newRoot placeholder in a rootId-scoped view', () => {
+    const result = treeLayout(
+      [
+        { id: 'a', parentId: null },
+        { id: 'b', parentId: null },
+      ],
+      { rootId: 'a', newRoot: true },
+    );
+    expect(result.newRoot).toBeNull();
+  });
+
   it('handles a very deep chain without recursing (no stack overflow)', () => {
     const depth = 3000;
     const people: TreePerson[] = [{ id: 'p0', parentId: null }];

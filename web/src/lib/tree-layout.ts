@@ -28,6 +28,8 @@ export type TreeLayout = {
   height: number;
   nodeWidth: number;
   nodeHeight: number;
+  /** The fixed "gestão global" band's slot above the forest (mockup/tree-layout.js's `manager`). */
+  manager: { x: number; y: number; width: number; height: number };
 };
 
 const NODE_WIDTH = 226;
@@ -36,6 +38,12 @@ const ROW_GAP = 240;
 const PADDING = 40;
 const SIBLING_GAP = 34;
 const ROOT_GAP = 88;
+// The first row starts below the gestão global band (y 26..136) and the dashed connectors that
+// drop from it (136 → 167 → row top), exactly as mockup/tree-layout.js's hard-coded `y:202`.
+const TOP = 202;
+const MANAGER_WIDTH = 350;
+const MANAGER_HEIGHT = 110;
+const MANAGER_Y = 26;
 
 export function treeLayout(people: TreePerson[], options: TreeLayoutOptions = {}): TreeLayout {
   const collapsedSet = new Set(options.collapsed ?? []);
@@ -90,10 +98,18 @@ export function treeLayout(people: TreePerson[], options: TreeLayoutOptions = {}
     );
   }
 
+  // The "Nova árvore" placeholder only makes sense when the whole forest is shown — a rootId-scoped
+  // view has no room for a sibling tree (mockup: `showNew = !!options.newRoot && !options.rootId`).
+  const showNew = !!options.newRoot && !options.rootId;
+
   // The whole forest is centered in the canvas: one ROOT_GAP between roots (never a trailing gap
   // after the last one), and any extra canvas width beyond the content is split evenly as an offset.
+  // The placeholder slot (plus its gap, when there are real roots) counts as part of the forest so it
+  // is centered with it and never overflows the canvas.
   const forestWidth =
-    roots.reduce((sum, id) => sum + (spans.get(id) ?? NODE_WIDTH), 0) + Math.max(0, roots.length - 1) * ROOT_GAP;
+    roots.reduce((sum, id) => sum + (spans.get(id) ?? NODE_WIDTH), 0) +
+    Math.max(0, roots.length - 1) * ROOT_GAP +
+    (showNew ? (roots.length > 0 ? ROOT_GAP : 0) + NODE_WIDTH : 0);
   const width = Math.max(940, forestWidth + PADDING * 2);
   const offsetX = (width - forestWidth) / 2;
 
@@ -117,7 +133,7 @@ export function treeLayout(people: TreePerson[], options: TreeLayoutOptions = {}
       // a rootId-scoped subtree — its real parent (if any) isn't part of the returned nodes.
       parentId: depth === 0 ? null : person.parentId,
       x: left + (spanWidth - NODE_WIDTH) / 2,
-      y: PADDING + depth * ROW_GAP,
+      y: TOP + depth * ROW_GAP,
       depth,
       descendants: counts.get(id) ?? 0,
       childCount: kids.length,
@@ -142,10 +158,20 @@ export function treeLayout(people: TreePerson[], options: TreeLayoutOptions = {}
     if (parent) edges.push({ from: parent, to: node });
   }
 
-  const maxDepth = nodes.reduce((max, n) => Math.max(max, n.depth), 0);
-  const height = Math.max(460, PADDING + (maxDepth + 1) * ROW_GAP + 82);
+  // mockup: `nodes.reduce((max, p) => Math.max(max, p.y + nodeHeight + 82), 460)`.
+  const height = nodes.reduce((max, n) => Math.max(max, n.y + NODE_HEIGHT + 82), 460);
 
-  const newRoot = options.newRoot ? { x: cursorX, y: PADDING } : null;
+  const newRoot = showNew ? { x: roots.length > 0 ? cursorX : offsetX, y: TOP } : null;
 
-  return { nodes, edges, roots, newRoot, width, height, nodeWidth: NODE_WIDTH, nodeHeight: NODE_HEIGHT };
+  return {
+    nodes,
+    edges,
+    roots,
+    newRoot,
+    width,
+    height,
+    nodeWidth: NODE_WIDTH,
+    nodeHeight: NODE_HEIGHT,
+    manager: { x: width / 2 - MANAGER_WIDTH / 2, y: MANAGER_Y, width: MANAGER_WIDTH, height: MANAGER_HEIGHT },
+  };
 }

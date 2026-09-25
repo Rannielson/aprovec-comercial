@@ -9,10 +9,16 @@ export function ParticipanteSearch({
   voluntarios,
   supervisorId,
   supervisorLabel,
+  searchQuery,
+  preserveParams,
 }: {
   voluntarios: HinovaVoluntario[];
   supervisorId: string | null;
   supervisorLabel: string;
+  /** The current `buscarParticipante` value, shown back in the search box. */
+  searchQuery?: string;
+  /** Other querystring values the page needs to survive the search's GET round-trip. */
+  preserveParams?: Record<string, string>;
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(criarParticipante, {});
   const [selected, setSelected] = useState<HinovaVoluntario | null>(null);
@@ -26,7 +32,16 @@ export function ParticipanteSearch({
       <p className="muted">{supervisorLabel}</p>
       {!selected ? (
         <form method="get" className="search-field">
-          <input type="search" name="buscarParticipante" placeholder="Buscar por nome" aria-label="Buscar voluntário por nome" />
+          {Object.entries(preserveParams ?? {}).map(([name, value]) => (
+            <input key={name} type="hidden" name={name} value={value} />
+          ))}
+          <input
+            type="search"
+            name="buscarParticipante"
+            placeholder="Buscar por nome"
+            aria-label="Buscar voluntário por nome"
+            defaultValue={searchQuery ?? ''}
+          />
         </form>
       ) : null}
       {!selected &&

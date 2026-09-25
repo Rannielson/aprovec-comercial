@@ -47,6 +47,13 @@ public sealed class ApiClient(HttpClient http, string host, string? ip = null)
         return (await response.Content.ReadFromJsonAsync<T>(Json))!;
     }
 
+    public async Task<T> PostJsonAsync<T>(string path, object? body = null)
+    {
+        var response = await PostAsync(path, body);
+        await ExpectAsync(response, HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<T>(Json))!;
+    }
+
     public async Task LoginAsync(string email, string password)
     {
         var response = await PostAsync("/auth/login", new { email, password });

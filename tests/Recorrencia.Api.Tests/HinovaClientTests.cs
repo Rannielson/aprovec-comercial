@@ -187,4 +187,135 @@ public class HinovaClientTests
         Assert.Contains("\"codigo_voluntario_vinculado\":\"101\"", body);
         Assert.Contains("\"codigo_cooperativa\":\"9\"", body);
     }
+
+    [Fact]
+    public async Task ListarBoletosPeriodo_sends_dates_as_ddMMyyyy_and_the_paging_params()
+    {
+        HttpRequestMessage? captured = null;
+        var (client, handler) = NewClient(req =>
+        {
+            captured = req;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { mostrando = 0, numero_paginas = 0, total_registros = "0", pagina_corrente = 0, boletos = Array.Empty<object>() }),
+            };
+        });
+
+        var filtro = new HinovaBoletoPeriodoFiltro(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), 100, 0);
+        await client.ListarBoletosPeriodoAsync("token-usuario", filtro, CancellationToken.None);
+
+        Assert.Equal("https://api.hinova.com.br/api/sga/v2/listar/boleto-associado/periodo", handler.LastRequest!.RequestUri!.ToString());
+        var body = await captured!.Content!.ReadAsStringAsync();
+        Assert.Contains("\"data_pagamento_inicial\":\"01/09/2026\"", body);
+        Assert.Contains("\"data_pagamento_final\":\"30/09/2026\"", body);
+        Assert.DoesNotContain("codigo_voluntario", body);
+        Assert.Contains("\"quantidade_por_pagina\":100", body);
+        Assert.Contains("\"inicio_paginacao\":0", body);
+    }
+
+    [Fact]
+    public async Task ListarBoletosPeriodo_parses_the_real_apis_mixed_number_and_string_fields()
+    {
+        // Shape confirmed against a real, live response: nosso_numero/codigo_associado are JSON
+        // numbers, valor_boleto/valor_pagamento/total_registros are JSON strings, dates are ISO
+        // (yyyy-MM-dd, not the dd/MM/yyyy the docs' own example shows), and within veiculos,
+        // codigo_veiculo is a number but codigo_voluntario is a string. A strict DTO throws on
+        // this mix; the client has to tolerate it either way.
+        const string json = """
+            {
+              "mostrando": 1,
+              "numero_paginas": 1,
+              "total_registros": "1",
+              "pagina_corrente": 0,
+              "boletos": [
+                {
+                  "nosso_numero": 555111,
+                  "valor_boleto": "150.00",
+                  "valor_pagamento": "150.00",
+                  "codigo_associado": 4242,
+                  "nome_associado": "FULANO DA SILVA",
+                  "data_vencimento": "2026-09-10",
+                  "data_pagamento": "2026-09-09",
+                  "veiculos": [
+                    {
+                      "codigo_veiculo": 9001,
+                      "codigo_voluntario": "26",
+                      "placa": "ABC1D23"
+                    }
+                  ]
+                }
+              ]
+            }
+            """;
+        var (client, _) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        var page = await client.ListarBoletosPeriodoAsync(
+            "token-usuario", new HinovaBoletoPeriodoFiltro(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), 100, 0), CancellationToken.None);
+
+        Assert.Equal((1, 1, 0), (page.NumeroPaginas, page.TotalRegistros, page.PaginaCorrente));
+        var boleto = Assert.Single(page.Boletos);
+        Assert.Equal(("555111", 150.00m, 150.00m, "4242", "FULANO DA SILVA"), (boleto.NossoNumero, boleto.ValorBoleto, boleto.ValorPagamento, boleto.CodigoAssociado, boleto.NomeAssociado));
+        Assert.Equal(new DateOnly(2026, 9, 10), boleto.Vencimento);
+        Assert.Equal(new DateOnly(2026, 9, 9), boleto.DataPagamento);
+        var veiculo = Assert.Single(boleto.Veiculos);
+        Assert.Equal(("9001", "26", "ABC1D23"), (veiculo.CodigoVeiculo, veiculo.CodigoVoluntario, veiculo.Placa));
+    }
+
+    [Fact]
+    public async Task ListarBoletosPeriodo_leaves_DataPagamento_null_when_the_boleto_is_unpaid()
+    {
+        const string json = """
+            {
+              "numero_paginas": 1, "total_registros": "1", "pagina_corrente": 0,
+              "boletos": [
+                {
+                  "nosso_numero": 1, "valor_boleto": "100.00", "valor_pagamento": "0.00",
+                  "codigo_associado": 1, "nome_associado": "A", "data_vencimento": "10/09/2026",
+                  "data_pagamento": null, "veiculos": []
+                }
+              ]
+            }
+            """;
+        var (client, _) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        var page = await client.ListarBoletosPeriodoAsync(
+            "token-usuario", new HinovaBoletoPeriodoFiltro(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), 100, 0), CancellationToken.None);
+
+        Assert.Null(Assert.Single(page.Boletos).DataPagamento);
+    }
+
+    [Fact]
+    public async Task ListarBoletosPeriodo_leaves_Vencimento_null_when_the_real_api_omits_it()
+    {
+        // Confirmed against the real Hinova API: some boletos come back with no data_vencimento
+        // at all, contradicting the docs' own example -- the client has to tolerate this rather
+        // than assume the field is always present.
+        const string json = """
+            {
+              "numero_paginas": 1, "total_registros": "1", "pagina_corrente": 0,
+              "boletos": [
+                {
+                  "nosso_numero": 1, "valor_boleto": "100.00", "valor_pagamento": "100.00",
+                  "codigo_associado": 1, "nome_associado": "A",
+                  "data_pagamento": "2026-09-09", "veiculos": []
+                }
+              ]
+            }
+            """;
+        var (client, _) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        var page = await client.ListarBoletosPeriodoAsync(
+            "token-usuario", new HinovaBoletoPeriodoFiltro(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), 100, 0), CancellationToken.None);
+
+        Assert.Null(Assert.Single(page.Boletos).Vencimento);
+    }
 }

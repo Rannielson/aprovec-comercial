@@ -123,6 +123,7 @@ app.MapCarteiraEndpoints();
 app.MapPlatformEndpoints();
 app.MapHinovaEndpoints();
 app.MapConviteLinkEndpoints();
+app.MapSolicitacaoCadastroEndpoints();
 
 app.Run();
 

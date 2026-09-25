@@ -478,6 +478,28 @@ tr.subtotal td { font-weight: 600; }
 .period-row > .muted { font-size: 0.6rem; text-align: right; color: #a3afbf; }
 .full { width: 100%; }
 
+/* Administração · Remuneração (planos de carreira) — form sections, faixa/regra row cards,
+   and the combined "Modelo X-Y-Z · R$ min–max por placa" summary banner. */
+.plano-form { display: grid; gap: 26px; }
+.plano-section { display: grid; gap: 14px; padding-top: 22px; border-top: 1px solid var(--line); }
+.plano-section:first-child { padding-top: 0; border-top: 0; }
+.plano-section-head { display: flex; align-items: flex-start; gap: 11px; }
+.plano-section-head .icon { width: 17px; height: 17px; color: var(--accent); margin-top: 2px; flex-shrink: 0; }
+.plano-section-head h2 { font-size: 0.85rem; letter-spacing: -0.01em; }
+.plano-section-head p { margin: 3px 0 0; font-size: 0.72rem; color: var(--muted); line-height: 1.6; }
+.plano-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
+
+.plano-summary { display: flex; align-items: center; gap: 10px; padding: 13px 16px; background: #fff6f5; border: 1px solid #f0d8d8; border-radius: 10px 0 10px 0; font-size: 0.78rem; color: #7a3336; }
+.plano-summary .icon { width: 16px; height: 16px; color: var(--brand-red-dark); flex-shrink: 0; }
+.plano-summary strong { color: var(--brand-red-dark); font-weight: 600; }
+
+.row-card { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px 0 10px 0; }
+.row-card + .row-card { margin-top: 10px; }
+.row-card label { flex: 1 1 140px; min-width: 0; font-size: 0.7rem; }
+.row-card > .icon-button { flex: 0 0 auto; margin-bottom: 1px; }
+
+.plano-add { margin-top: 12px; }
+
 @media (max-width: 760px) {
   .page-heading.with-action { grid-template-columns: 1fr; }
   .pyramid-header { padding: 19px; flex-wrap: wrap; gap: 13px; }

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { AppShell } from '../../app-shell';
 import { apiFetch, currentHost } from '@/lib/api';
 import type { Me, PlanoCarreira } from '@/lib/types';
+import { descreverPlanoCarreira } from '@/lib/plano-carreira-summary';
 
 const CLASSIFICACAO_LABELS: Record<string, string> = {
   clt_interno: 'CLT Interno',
@@ -52,6 +53,7 @@ export default async function RemuneracaoPage() {
                 <tr>
                   <th>Nome</th>
                   <th>Classificação</th>
+                  <th>Modelo</th>
                   <th>Status</th>
                   {canEdit && <th>Ações</th>}
                 </tr>
@@ -59,7 +61,7 @@ export default async function RemuneracaoPage() {
               <tbody>
                 {planos.length === 0 ? (
                   <tr>
-                    <td colSpan={canEdit ? 4 : 3} className="empty-state">
+                    <td colSpan={canEdit ? 5 : 4} className="empty-state">
                       <strong>Nenhum plano de carreira cadastrado</strong>
                     </td>
                   </tr>
@@ -68,6 +70,7 @@ export default async function RemuneracaoPage() {
                     <tr key={p.id}>
                       <td>{p.name}</td>
                       <td>{CLASSIFICACAO_LABELS[p.classificacao] ?? p.classificacao}</td>
+                      <td className="muted">{descreverPlanoCarreira(p) ?? '—'}</td>
                       <td>
                         <span className={p.status === 'ativo' ? 'badge progress' : 'badge neutral'}>{p.status}</span>
                       </td>

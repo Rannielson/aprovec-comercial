@@ -37,6 +37,8 @@ export default async function ArvorePage({
 
   // Each API call below has its own permission; the page degrades instead of failing when one is missing.
   const showValues = has('comissoes.visualizar');
+  // Existence alone isn't enough: an `own` scope returns only the viewer's own row (see buildEstrutura).
+  const commissionScope = me.permissions.find((p) => p.key === 'comissoes.visualizar')?.scope ?? null;
   // POST /users with Hinova fields needs usuarios.convidar + integracoes.gerenciar (and the voluntário
   // search needs integracoes.gerenciar); setting a supervisor additionally needs estrutura.editar.
   const canAddRoot = has('usuarios.convidar') && has('integracoes.gerenciar');
@@ -48,7 +50,7 @@ export default async function ArvorePage({
     showValues ? apiFetch<Commissions>(`/commissions/${competencia}`) : Promise.resolve(null),
   ]);
 
-  const { sellers, gestores, rates } = buildEstrutura(users, commissions);
+  const { sellers, gestores, rates } = buildEstrutura(users, commissions, { id: me.id, commissionScope });
   const people: Record<string, Participante> = Object.fromEntries(sellers.map((s) => [s.id, s]));
   const roots = sellers.filter((s) => s.parentId === null).map((s) => ({ id: s.id, name: s.name }));
   // Like the mockup, only a real tree top is a valid `root`; anything else falls back to all trees.
@@ -189,9 +191,11 @@ export default async function ArvorePage({
                             <span className="badge progress">Vendedor</span>
                           </td>
                           <td>{s.supervisorId ? (userName.get(s.supervisorId) ?? '—') : 'Sem indicador'}</td>
-                          <td className="number">{s.rate !== null ? formatPercent(s.rate) : '—'}</td>
-                          <td className="number amount">{money(s.recebido)}</td>
-                          <td className={s.comissao > 0 ? 'number amount earned' : 'number amount muted'}>{money(s.comissao)}</td>
+                          <td className="number">{s.rate !== null && !s.valuesHidden ? formatPercent(s.rate) : '—'}</td>
+                          <td className="number amount">{s.valuesHidden ? '—' : money(s.recebido)}</td>
+                          <td className={s.comissao > 0 && !s.valuesHidden ? 'number amount earned' : 'number amount muted'}>
+                            {s.valuesHidden ? '—' : money(s.comissao)}
+                          </td>
                         </tr>
                       ))}
                     </>

@@ -341,15 +341,15 @@ export function Pyramid({
                         <strong title={p.name}>{p.name}</strong>
                         <small>{node.depth === 0 ? 'Topo da árvore' : 'Carteira própria'}</small>
                       </span>
-                      <span className="pyramid-rate">{p.rate !== null ? formatPercent(p.rate) : '—'}</span>
+                      <span className="pyramid-rate">{p.rate !== null && !p.valuesHidden ? formatPercent(p.rate) : '—'}</span>
                     </span>
                     <span className="pyramid-person-value">
                       <small>Recebidos na carteira</small>
-                      <strong>{money(p.recebido)}</strong>
+                      <strong>{p.valuesHidden ? '—' : money(p.recebido)}</strong>
                     </span>
                     <span className="pyramid-person-total">
                       <span>Comissão total</span>
-                      <strong>{money(p.comissao)}</strong>
+                      <strong>{p.valuesHidden ? '—' : money(p.comissao)}</strong>
                     </span>
                   </div>
                   <div className="pyramid-node-actions">

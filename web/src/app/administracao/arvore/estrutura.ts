@@ -21,6 +21,11 @@ export type Participante = {
   comissao: number;
   /** Rate they earn on a direct indicado's wallet (their level-1 `upline` entry), when known. */
   referralRate: number | null;
+  /**
+   * True when the viewer's `comissoes.visualizar` scope doesn't cover this person — recebido/comissao/rate
+   * are 0/null placeholders, not real zeros.
+   */
+  valuesHidden: boolean;
 };
 
 /** Someone paid by a `global` rule — drawn in the fixed "gestão global" band, not in the pyramid. */
@@ -35,7 +40,11 @@ export type Estrutura = {
 
 const isReferral = (r: BeneficiaryCommission['byRule'][number]) => r.ruleType === 'upline' && r.level === 1;
 
-export function buildEstrutura(users: UserNode[], commissions: Commissions | null): Estrutura {
+export function buildEstrutura(
+  users: UserNode[],
+  commissions: Commissions | null,
+  viewer: { id: string; commissionScope: string | null },
+): Estrutura {
   const beneficiaries = commissions?.beneficiaries ?? [];
   const byUser = new Map(beneficiaries.map((b) => [b.userId, b]));
   const userById = new Map(users.map((u) => [u.id, u]));
@@ -74,6 +83,9 @@ export function buildEstrutura(users: UserNode[], commissions: Commissions | nul
       recebido: own?.base ?? 0,
       comissao: b?.total ?? 0,
       referralRate: b?.byRule.find(isReferral)?.rate ?? null,
+      // An `own`-scoped viewer (e.g. consultor) only ever gets their own row from /commissions, so anyone
+      // else's absence there says nothing about their activity — their zeros must not be shown as real.
+      valuesHidden: viewer.commissionScope === 'own' && u.id !== viewer.id,
     };
   });
 
@@ -87,7 +99,8 @@ export function buildEstrutura(users: UserNode[], commissions: Commissions | nul
   // The active commission plan is tenant-wide (one `own` rate, one level-1 `upline` rate), so someone
   // without an entry of their own yet — a brand-new participant — still shows the rate that applies to them.
   for (const s of sellers) {
-    s.rate ??= rates.own;
+    // A hidden person's rate stays a null placeholder too (see `valuesHidden`).
+    if (!s.valuesHidden) s.rate ??= rates.own;
     s.referralRate ??= rates.referral;
   }
 

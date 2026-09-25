@@ -21,6 +21,9 @@ const rule = (ruleType: RuleTotal['ruleType'], rate: number, base: number, level
   amount: Math.round(rate * base * 100) / 100,
 });
 
+// The existing tests exercise admin-equivalent visibility (a tenant-wide commissions scope).
+const ADMIN = { id: 'admin-id', commissionScope: 'tenant' };
+
 const commissions = (beneficiaries: Commissions['beneficiaries']): Commissions => ({
   competencia: '2026-09',
   status: 'apuracao',
@@ -37,6 +40,7 @@ describe('buildEstrutura', () => {
         { userId: 'gestor', name: 'GESTOR', total: 100, byRule: [rule('global', 0.01, 10000)] },
         { userId: 'ana', name: 'ANA', total: 70, byRule: [rule('own', 0.07, 1000)] },
       ]),
+      ADMIN,
     );
     expect(result.gestores).toEqual([{ id: 'gestor', name: 'GESTOR', rate: 0.01, recebido: 10000, comissao: 100 }]);
     expect(result.sellers.map((s) => s.id)).toEqual(['ana']);
@@ -44,7 +48,7 @@ describe('buildEstrutura', () => {
   });
 
   it('renders zeros for a participant with no commission entry at all', () => {
-    const result = buildEstrutura([user('ana'), user('novo', 'ana')], commissions([]));
+    const result = buildEstrutura([user('ana'), user('novo', 'ana')], commissions([]), ADMIN);
     const novo = result.sellers.find((s) => s.id === 'novo')!;
     expect(novo).toMatchObject({ parentId: 'ana', rate: null, recebido: 0, comissao: 0, referralRate: null });
   });
@@ -55,13 +59,14 @@ describe('buildEstrutura', () => {
       commissions([
         { userId: 'ana', name: 'ANA', total: 70, byRule: [rule('own', 0.07, 1000), rule('upline', 0.02, 0, 1)] },
       ]),
+      ADMIN,
     );
     const novo = result.sellers.find((s) => s.id === 'novo')!;
     expect(novo).toMatchObject({ rate: 0.07, referralRate: 0.02, recebido: 0, comissao: 0 });
   });
 
   it('works without any commissions response (no comissoes.visualizar)', () => {
-    const result = buildEstrutura([user('ana')], null);
+    const result = buildEstrutura([user('ana')], null, ADMIN);
     expect(result.gestores).toEqual([]);
     expect(result.sellers[0]).toMatchObject({ recebido: 0, comissao: 0 });
   });
@@ -73,6 +78,7 @@ describe('buildEstrutura', () => {
         { userId: 'ana', name: 'ANA', total: 90, byRule: [rule('own', 0.07, 1000), rule('upline', 0.02, 1000, 1)] },
         { userId: 'bia', name: 'BIA', total: 70, byRule: [rule('own', 0.07, 1000)] },
       ]),
+      ADMIN,
     );
     const ana = result.sellers.find((s) => s.id === 'ana')!;
     expect(ana).toMatchObject({ rate: 0.07, recebido: 1000, comissao: 90, referralRate: 0.02 });
@@ -83,6 +89,7 @@ describe('buildEstrutura', () => {
     const result = buildEstrutura(
       [user('gestor'), user('saiu', null, 'desligado'), user('ana', 'gestor'), user('bia', 'saiu'), user('caio', 'ana')],
       commissions([{ userId: 'gestor', name: 'GESTOR', total: 10, byRule: [rule('global', 0.01, 1000)] }]),
+      ADMIN,
     );
     const byId = Object.fromEntries(result.sellers.map((s) => [s.id, s]));
     expect(Object.keys(byId).sort()).toEqual(['ana', 'bia', 'caio']);
@@ -90,5 +97,37 @@ describe('buildEstrutura', () => {
     expect(byId.ana.supervisorId).toBe('gestor');
     expect(byId.bia.parentId).toBeNull();
     expect(byId.caio.parentId).toBe('ana');
+  });
+
+  it("hides values an 'own'-scoped viewer can't actually see, even when the input has them", () => {
+    const result = buildEstrutura(
+      [user('ana'), user('bia', 'ana')],
+      commissions([
+        { userId: 'ana', name: 'ANA', total: 90, byRule: [rule('own', 0.07, 1000), rule('upline', 0.02, 1000, 1)] },
+        { userId: 'bia', name: 'BIA', total: 70, byRule: [rule('own', 0.07, 1000)] },
+      ]),
+      { id: 'ana', commissionScope: 'own' },
+    );
+    const byId = Object.fromEntries(result.sellers.map((s) => [s.id, s]));
+    expect(byId.ana.valuesHidden).toBe(false);
+    expect(byId.ana).toMatchObject({ rate: 0.07, recebido: 1000, comissao: 90 });
+    expect(byId.bia.valuesHidden).toBe(true);
+  });
+
+  it("keeps a hidden report's rate a null placeholder instead of the tenant-wide fallback", () => {
+    const result = buildEstrutura(
+      [user('ana'), user('bia', 'ana')],
+      commissions([{ userId: 'ana', name: 'ANA', total: 70, byRule: [rule('own', 0.07, 1000)] }]),
+      { id: 'ana', commissionScope: 'own' },
+    );
+    const bia = result.sellers.find((s) => s.id === 'bia')!;
+    expect(bia).toMatchObject({ valuesHidden: true, rate: null, recebido: 0, comissao: 0 });
+  });
+
+  it('does not hide anyone for broader commission scopes', () => {
+    for (const commissionScope of ['direct', 'subtree', 'tenant', null]) {
+      const result = buildEstrutura([user('ana'), user('bia', 'ana')], commissions([]), { id: 'ana', commissionScope });
+      expect(result.sellers.every((s) => !s.valuesHidden)).toBe(true);
+    }
   });
 });

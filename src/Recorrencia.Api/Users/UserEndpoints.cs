@@ -91,49 +91,14 @@ public static class UserEndpoints
             throw new ApiProblem(StatusCodes.Status400BadRequest, "hinova.campos_incompletos");
 
         var id = Guid.CreateVersion7();
-        var token = Tokens.New();
+        var token = "";
         await db.InTenantAsync(tenant, actor, async tx =>
         {
             await RoleGuards.EnsureCanGrantRolesAsync(tx, mine, roleIds);
-            try
-            {
-                await tx.ExecuteAsync(
-                    "insert into users (id, tenant_id, name, email, supervisor_id) values (@id, @tenant, @name, @address, @supervisor)",
-                    new { id, tenant, name, address, supervisor = body.SupervisorId });
-            }
-            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
-            {
-                throw new ApiProblem(StatusCodes.Status409Conflict, "users.email_taken");
-            }
-            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.ForeignKeyViolation)
-            {
-                throw new ApiProblem(StatusCodes.Status400BadRequest, "users.invalid_supervisor");
-            }
-
-            foreach (var roleId in roleIds.Distinct())
-                await tx.ExecuteAsync("insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @id, @roleId)", new { tenant, id, roleId });
-
+            await CreateUserWithRolesAsync(tx, tenant, id, name, address, body.SupervisorId, roleIds);
             if (hasHinovaFields)
-            {
-                try
-                {
-                    await tx.ExecuteAsync(
-                        """
-                        insert into hinova_voluntario_mapping (tenant_id, user_id, codigo_voluntario, nome_hinova, cpf_hinova, mapped_by)
-                        values (@tenant, @id, @codigoVoluntario, @nomeHinova, @cpfHinova, @actor)
-                        """,
-                        new { tenant, id, codigoVoluntario, nomeHinova, cpfHinova, actor });
-                }
-                catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
-                {
-                    throw new ApiProblem(StatusCodes.Status409Conflict, "hinova.vinculo_duplicado");
-                }
-                await WriteAsync(tx, tenant, actor, "hinova.vincular", "hinova_voluntario_mapping", id, null, new { codigoVoluntario, nomeHinova, cpfHinova });
-            }
-
-            await tx.ExecuteAsync("select app.create_invite(@id, @hash, 'convite', @ttl)",
-                new { id, hash = Tokens.Hash(token), ttl = options.Value.InviteTtlSeconds });
-            await WriteAsync(tx, tenant, actor, "users.invite", "users", id, null, new { name, email = address, body.SupervisorId, roleIds });
+                await LinkHinovaAsync(tx, tenant, id, actor, codigoVoluntario, nomeHinova, cpfHinova);
+            token = await CreateInviteTokenAsync(tx, tenant, actor, id, name, address, body.SupervisorId, roleIds, options.Value.InviteTtlSeconds);
             return 0;
         }, ct);
 
@@ -146,6 +111,60 @@ public static class UserEndpoints
                 "O link vale por 72 horas.",
                 links.Logo(request.TenantSlug!)), ct);
         return Results.Created($"/users/{id}", new { id });
+    }
+
+    /// <summary>
+    /// Insere o usuário e seus papéis. Reaproveitado por InviteAsync (POST /users) e pela
+    /// aprovação de solicitação de cadastro (Fase 5) -- a mesma operação, dois pontos de entrada.
+    /// </summary>
+    internal static async Task CreateUserWithRolesAsync(Tx tx, Guid tenant, Guid id, string name, string email,
+        Guid? supervisorId, IReadOnlyCollection<Guid> roleIds)
+    {
+        try
+        {
+            await tx.ExecuteAsync(
+                "insert into users (id, tenant_id, name, email, supervisor_id) values (@id, @tenant, @name, @email, @supervisor)",
+                new { id, tenant, name, email, supervisor = supervisorId });
+        }
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw new ApiProblem(StatusCodes.Status409Conflict, "users.email_taken");
+        }
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+        {
+            throw new ApiProblem(StatusCodes.Status400BadRequest, "users.invalid_supervisor");
+        }
+
+        foreach (var roleId in roleIds.Distinct())
+            await tx.ExecuteAsync("insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @id, @roleId)", new { tenant, id, roleId });
+    }
+
+    internal static async Task LinkHinovaAsync(Tx tx, Guid tenant, Guid userId, Guid actor, string codigoVoluntario, string nomeHinova, string cpfHinova)
+    {
+        try
+        {
+            await tx.ExecuteAsync(
+                """
+                insert into hinova_voluntario_mapping (tenant_id, user_id, codigo_voluntario, nome_hinova, cpf_hinova, mapped_by)
+                values (@tenant, @userId, @codigoVoluntario, @nomeHinova, @cpfHinova, @actor)
+                """,
+                new { tenant, userId, codigoVoluntario, nomeHinova, cpfHinova, actor });
+        }
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw new ApiProblem(StatusCodes.Status409Conflict, "hinova.vinculo_duplicado");
+        }
+        await WriteAsync(tx, tenant, actor, "hinova.vincular", "hinova_voluntario_mapping", userId, null, new { codigoVoluntario, nomeHinova, cpfHinova });
+    }
+
+    internal static async Task<string> CreateInviteTokenAsync(Tx tx, Guid tenant, Guid actor, Guid userId, string name, string email,
+        Guid? supervisorId, Guid[] roleIds, int ttlSeconds)
+    {
+        var token = Tokens.New();
+        await tx.ExecuteAsync("select app.create_invite(@userId, @hash, 'convite', @ttl)",
+            new { userId, hash = Tokens.Hash(token), ttl = ttlSeconds });
+        await WriteAsync(tx, tenant, actor, "users.invite", "users", userId, null, new { name, email, supervisorId, roleIds });
+        return token;
     }
 
     private static async Task<IResult> ChangeSupervisorAsync(Guid id, SupervisorRequest body, RequestContext request, Database db, CancellationToken ct)

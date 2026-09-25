@@ -166,7 +166,8 @@ public static partial class PlatformEndpoints
                 $"A empresa {name} foi criada na plataforma.",
                 "Definir senha de administrador",
                 links.SetPassword(slug, token),
-                "O link vale por 72 horas."), ct);
+                "O link vale por 72 horas.",
+                links.Logo(slug)), ct);
         return Results.Created($"/platform/tenants/{created.TenantId}", new { id = created.TenantId, slug });
     }
 

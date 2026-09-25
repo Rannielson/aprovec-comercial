@@ -66,7 +66,8 @@ public static class PasswordEndpoints
                         "Recebemos um pedido para redefinir sua senha.",
                         "Definir nova senha",
                         links.SetPassword(request.TenantSlug!, token),
-                        "O link vale por 1 hora. Se você não fez esse pedido, ignore este e-mail."), ct);
+                        "O link vale por 1 hora. Se você não fez esse pedido, ignore este e-mail.",
+                        links.Logo(request.TenantSlug!)), ct);
             }
         }
         finally

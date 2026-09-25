@@ -4,8 +4,7 @@ namespace Recorrencia.Api.Email;
 
 /// <summary>
 /// Branded HTML for the transactional emails sent by PasswordEndpoints, UserEndpoints and
-/// PlatformEndpoints. A text wordmark stands in for the logo -- most mail clients block remote
-/// images by default, so a styled "APROVEC" is more reliable than an &lt;img&gt; that may never load.
+/// PlatformEndpoints.
 /// </summary>
 public static class EmailTemplates
 {
@@ -14,13 +13,20 @@ public static class EmailTemplates
     /// <param name="ctaLabel">Button text, e.g. "Definir minha senha".</param>
     /// <param name="url">The set-password link (already built by LinkBuilder).</param>
     /// <param name="note">Small print under the button -- TTL and/or a safety note.</param>
-    public static string AccessLink(string heading, string intro, string ctaLabel, string url, string note)
+    /// <param name="logoUrl">
+    /// Absolute URL to logo-aprovec.webp (LinkBuilder.Logo) -- must be a real publicly-reachable
+    /// address, since mail clients fetch it from the open internet; a *.localhost URL renders as
+    /// a broken image (the alt text still shows). Some older clients (notably Outlook desktop)
+    /// don't render WEBP at all and will also fall back to the alt text.
+    /// </param>
+    public static string AccessLink(string heading, string intro, string ctaLabel, string url, string note, string logoUrl)
     {
         var safeHeading = WebUtility.HtmlEncode(heading);
         var safeIntro = WebUtility.HtmlEncode(intro);
         var safeCta = WebUtility.HtmlEncode(ctaLabel);
         var safeUrl = WebUtility.HtmlEncode(url);
         var safeNote = WebUtility.HtmlEncode(note);
+        var safeLogoUrl = WebUtility.HtmlEncode(logoUrl);
 
         return $$"""
             <!DOCTYPE html>
@@ -38,8 +44,8 @@ public static class EmailTemplates
                              style="max-width:480px; width:100%; background:#ffffff; border-radius:12px; overflow:hidden;">
                         <tr>
                           <td style="background:#ab090a; padding:28px 32px;">
-                            <span style="font-family:Arial,Helvetica,sans-serif; font-size:20px; font-weight:bold; letter-spacing:0.04em; color:#ffffff;">APROVEC</span>
-                            <div style="font-family:Arial,Helvetica,sans-serif; font-size:10px; letter-spacing:0.12em; color:#f2c4c2; text-transform:uppercase; margin-top:4px;">Recorrência comercial</div>
+                            <img src="{{safeLogoUrl}}" alt="APROVEC Brasil" width="168" height="44" style="display:block; border:0;">
+                            <div style="font-family:Arial,Helvetica,sans-serif; font-size:10px; letter-spacing:0.12em; color:#f2c4c2; text-transform:uppercase; margin-top:10px;">Recorrência comercial</div>
                           </td>
                         </tr>
                         <tr>

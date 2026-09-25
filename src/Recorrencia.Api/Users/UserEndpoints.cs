@@ -143,7 +143,8 @@ public static class UserEndpoints
                 $"Você foi convidado para acessar a plataforma de {request.TenantName}.",
                 "Definir minha senha",
                 links.SetPassword(request.TenantSlug!, token),
-                "O link vale por 72 horas."), ct);
+                "O link vale por 72 horas.",
+                links.Logo(request.TenantSlug!)), ct);
         return Results.Created($"/users/{id}", new { id });
     }
 

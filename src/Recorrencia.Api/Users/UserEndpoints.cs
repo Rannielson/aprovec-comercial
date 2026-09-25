@@ -138,13 +138,12 @@ public static class UserEndpoints
         }, ct);
 
         await email.SendAsync(address, "Convite de acesso",
-            $"""
-            Você foi convidado para acessar a plataforma de {request.TenantName}.
-
-            Defina sua senha em: {links.SetPassword(request.TenantSlug!, token)}
-
-            O link vale por 72 horas.
-            """, ct);
+            EmailTemplates.AccessLink(
+                "Convite de acesso",
+                $"Você foi convidado para acessar a plataforma de {request.TenantName}.",
+                "Definir minha senha",
+                links.SetPassword(request.TenantSlug!, token),
+                "O link vale por 72 horas."), ct);
         return Results.Created($"/users/{id}", new { id });
     }
 

@@ -37,18 +37,22 @@ public class ResendEmailSenderTests
             Content = JsonContent.Create(new { id = "abc123" }),
         });
 
-        await sender.SendAsync("joao@aprovec.local", "Convite de acesso", "Defina sua senha em: https://...", CancellationToken.None);
+        await sender.SendAsync("joao@aprovec.local", "Convite de acesso", "<p>Defina sua senha em: https://...</p>", CancellationToken.None);
 
         Assert.Equal("https://api.resend.com/emails", handler.LastRequest!.RequestUri!.ToString());
         Assert.Equal("Bearer", handler.LastRequest.Headers.Authorization!.Scheme);
         Assert.Equal("re_test123", handler.LastRequest.Headers.Authorization!.Parameter);
 
+        // Every field name matters here -- Resend's API expects exactly these lowercase keys
+        // (confirmed against https://resend.com/docs/api-reference/emails/send-email); a plain
+        // record without [JsonPropertyName] would serialize as "From"/"To"/"Html" instead and
+        // Resend would reject the request, which is exactly the bug this test caught once before.
         using var body = JsonDocument.Parse(handler.LastRequestBody!);
         var root = body.RootElement;
         Assert.Equal("APROVEC <onboarding@resend.dev>", root.GetProperty("from").GetString());
         Assert.Equal("joao@aprovec.local", Assert.Single(root.GetProperty("to").EnumerateArray()).GetString());
         Assert.Equal("Convite de acesso", root.GetProperty("subject").GetString());
-        Assert.Equal("Defina sua senha em: https://...", root.GetProperty("text").GetString());
+        Assert.Equal("<p>Defina sua senha em: https://...</p>", root.GetProperty("html").GetString());
     }
 
     [Fact]

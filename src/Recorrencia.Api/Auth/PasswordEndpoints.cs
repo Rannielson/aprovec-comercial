@@ -61,13 +61,12 @@ public static class PasswordEndpoints
                     "select app.create_invite(@userId, @hash, 'redefinicao', @ttl)",
                     new { userId = login.UserId, hash = Tokens.Hash(token), ttl = options.Value.ResetTtlSeconds }), ct);
                 await email.SendAsync(address, "Redefinição de senha",
-                    $"""
-                    Recebemos um pedido para redefinir sua senha.
-
-                    Defina uma nova senha em: {links.SetPassword(request.TenantSlug!, token)}
-
-                    O link vale por 1 hora. Se você não fez esse pedido, ignore este e-mail.
-                    """, ct);
+                    EmailTemplates.AccessLink(
+                        "Redefinição de senha",
+                        "Recebemos um pedido para redefinir sua senha.",
+                        "Definir nova senha",
+                        links.SetPassword(request.TenantSlug!, token),
+                        "O link vale por 1 hora. Se você não fez esse pedido, ignore este e-mail."), ct);
             }
         }
         finally

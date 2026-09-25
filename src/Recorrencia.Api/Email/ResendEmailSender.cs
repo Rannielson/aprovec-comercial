@@ -13,6 +13,8 @@ public sealed class ResendEmailSender(HttpClient http, IOptions<ResendOptions> o
 {
     public async Task SendAsync(string to, string subject, string body, CancellationToken ct)
     {
+        // body is the branded HTML produced by EmailTemplates -- sent as html, not text, so
+        // clients render the actual design instead of the raw markup.
         using var request = new HttpRequestMessage(HttpMethod.Post, "emails")
         {
             Content = JsonContent.Create(new SendRequest($"APROVEC <{options.Value.FromAddress}>", [to], subject, body)),
@@ -27,7 +29,11 @@ public sealed class ResendEmailSender(HttpClient http, IOptions<ResendOptions> o
         }
     }
 
-    private sealed record SendRequest(string From, string[] To, string Subject, string Text);
+    private sealed record SendRequest(
+        [property: JsonPropertyName("from")] string From,
+        [property: JsonPropertyName("to")] string[] To,
+        [property: JsonPropertyName("subject")] string Subject,
+        [property: JsonPropertyName("html")] string Html);
 
     private sealed record ErrorResponse([property: JsonPropertyName("message")] string? Message);
 }

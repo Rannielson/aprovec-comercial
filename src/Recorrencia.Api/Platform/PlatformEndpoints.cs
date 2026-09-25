@@ -161,13 +161,12 @@ public static partial class PlatformEndpoints
         // away rather than possibly waiting out a stale negative cache entry.
         resolver.Invalidate(slug);
         await email.SendAsync(adminEmail, "Sua empresa foi criada",
-            $"""
-            A empresa {name} foi criada na plataforma.
-
-            Defina sua senha de administrador em: {links.SetPassword(slug, token)}
-
-            O link vale por 72 horas.
-            """, ct);
+            EmailTemplates.AccessLink(
+                "Sua empresa foi criada",
+                $"A empresa {name} foi criada na plataforma.",
+                "Definir senha de administrador",
+                links.SetPassword(slug, token),
+                "O link vale por 72 horas."), ct);
         return Results.Created($"/platform/tenants/{created.TenantId}", new { id = created.TenantId, slug });
     }
 

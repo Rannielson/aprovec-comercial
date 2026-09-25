@@ -204,6 +204,41 @@ public class SolicitacaoCadastroTests(ApiFixture api)
     }
 
     [Fact]
+    public async Task Approving_with_an_already_taken_email_returns_409_before_touching_hinova()
+    {
+        var s = await api.SeedAsync();
+        var token = await LinkTokenAsync(s, s.Joao, "317");
+        // E-mail de um usuário já existente no tenant (o admin), com caixa diferente -- users.email
+        // é citext, então isso ainda é o mesmo e-mail.
+        var emailColidente = $"ADMIN@{s.Slug}.local";
+        var anonimo = api.Client(s.Slug);
+        var submit = await anonimo.PostAsync($"/convite-links/{token}/solicitacoes", new
+        {
+            nome = "Fulano de Tal", cpf = "55544433322", celular = "11999998888", email = emailColidente,
+            cep = "30000-000", logradouro = "Rua X", numero = "10", bairro = "Bairro", cidade = "Cidade", estado = "UF",
+        });
+        await ApiClient.ExpectAsync(submit, HttpStatusCode.Created);
+        var id = (await submit.Content.ReadFromJsonAsync<IdDto>(ApiClient.Json))!.Id;
+
+        // Tudo o que a Hinova precisaria pra chegar no Cadastrar está configurado -- só o e-mail
+        // repetido deve impedir. O fake é compartilhado pela coleção inteira, então em vez de
+        // exigir UltimoCadastro == null (outro teste pode já ter cadastrado), exige que ele não mude.
+        api.Hinova.BuscarPorChave["317"] = new HinovaVoluntarioDetalhe("317", "João Silva", "11111111111", ["1"]);
+        var cadastroAntes = api.Hinova.UltimoCadastro;
+        var admin = api.Client(s.Slug);
+        await admin.LoginAsync($"admin@{s.Slug}.local", ApiFixture.Password);
+        await admin.PutAsync("/integracoes/hinova/credenciais", new { usuario = "usuario", senha = "senha", tokenSga = "token" });
+        var response = await admin.PostAsync($"/solicitacoes-cadastro/{id}/aprovar");
+
+        await ApiClient.ExpectAsync(response, HttpStatusCode.Conflict);
+        Assert.Equal("users.email_taken", await ApiClient.CodeAsync(response));
+        Assert.Same(cadastroAntes, api.Hinova.UltimoCadastro);
+
+        var status = await api.SqlScalarAsync<string>("select status from solicitacoes_cadastro where id = @id", new { id });
+        Assert.Equal("pendente", status);
+    }
+
+    [Fact]
     public async Task Rejecting_marks_the_solicitacao_and_creates_no_user()
     {
         var s = await api.SeedAsync();

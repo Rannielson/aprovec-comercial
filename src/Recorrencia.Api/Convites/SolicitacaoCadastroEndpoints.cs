@@ -30,9 +30,10 @@ public static class SolicitacaoCadastroEndpoints
         public Guid Id { get; set; }
         public Guid TenantId { get; set; }
         public Guid IndicadorUserId { get; set; }
-        // Populated only by ListarAsync's join (it aliases users.name as indicador_nome); the
-        // plain "select * from solicitacoes_cadastro" that AprovarAsync/RejeitarAsync run has no
-        // such column, so it stays "" there -- harmless, since neither of those handlers reads it.
+        // Populated only by the queries that join users (ListarAsync, and AprovarAsync's phase-1
+        // read), aliasing users.name as indicador_nome; the plain "select * from
+        // solicitacoes_cadastro ... for update" in AprovarAsync's final transaction has no such
+        // column, so it stays "" there -- harmless, since that code path doesn't read it.
         public string IndicadorNome { get; set; } = "";
         public string Nome { get; set; } = "";
         public string Cpf { get; set; } = "";
@@ -146,44 +147,60 @@ public static class SolicitacaoCadastroEndpoints
         var actor = request.RequireUser();
         var mine = await permissions.GetAsync(ct);
 
-        // A transação fica aberta durante as chamadas HTTP à Hinova (2-3 round-trips) -- aceitável
-        // aqui: é uma ação de admin, de baixo volume (poucas aprovações por dia), travando uma
-        // única linha de solicitacoes_cadastro, não uma tabela quente do sistema.
+        // Fase 1: leituras sem lock, só pra decidir se vale a pena tentar a Hinova. Pode ficar
+        // desatualizado entre aqui e a fase 3 (outro admin resolvendo a mesma solicitação); a fase 3
+        // reconfirma tudo com "for update" antes de escrever.
+        var pre = await db.InTenantAsync(tenant, actor, tx => tx.QuerySingleOrDefaultAsync<SolicitacaoRow>(
+            """
+            select s.*, u.name as indicador_nome
+              from solicitacoes_cadastro s join users u on u.id = s.indicador_user_id
+             where s.tenant_id = @tenant and s.id = @id
+            """, new { tenant, id }), ct) ?? throw new ApiProblem(StatusCodes.Status404NotFound, "solicitacao.not_found");
+        if (pre.Status != "pendente")
+            throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.ja_resolvida");
+
+        var indicadorCodigo = await db.InTenantAsync(tenant, actor, tx => tx.QuerySingleOrDefaultAsync<string>(
+            "select codigo_voluntario from hinova_voluntario_mapping where tenant_id = @tenant and user_id = @indicadorId",
+            new { tenant, indicadorId = pre.IndicadorUserId }), ct)
+            ?? throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.indicador_sem_hinova");
+
+        // "::citext": users.email é citext, mas o parâmetro chega como text -- sem o cast o Postgres
+        // escolhe text = text (sensível a caixa) e "Fulano@x" passaria por aqui, só batendo na
+        // unique (tenant_id, email) depois de já ter escrito na Hinova.
+        if (await db.InTenantAsync(tenant, actor, tx => tx.ExecuteScalarAsync<bool>(
+            "select exists(select 1 from users where tenant_id = @tenant and email = @email::citext)", new { tenant, email = pre.Email }), ct))
+            throw new ApiProblem(StatusCodes.Status409Conflict, "users.email_taken");
+
+        var roleIds = (await db.InTenantAsync(tenant, actor, tx => tx.QueryAsync<Guid>(
+            "select id from roles where tenant_id = @tenant and source_template_key = 'consultor'", new { tenant }), ct)).ToArray();
+        await db.InTenantAsync(tenant, actor, async tx => { await RoleGuards.EnsureCanGrantRolesAsync(tx, mine, roleIds); return 0; }, ct);
+
+        // Fase 2: chamadas de LEITURA à Hinova -- ainda seguro cancelar com o ct do request.
+        var tokenUsuario = await HinovaAuth.GetTokenUsuarioAsync(db, tenant, actor, cipher, hinova, ct);
+
+        var existente = await hinova.BuscarVoluntarioAsync(tokenUsuario, pre.Cpf, ct);
+        if (existente is not null)
+            throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.cpf_ja_cadastrado");
+
+        var indicador = await hinova.BuscarVoluntarioAsync(tokenUsuario, indicadorCodigo, ct)
+            ?? throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.indicador_sem_hinova");
+
+        // Fase 3: daqui em diante é ESCRITA real (Hinova + a transação final) -- CancellationToken.None
+        // pra não deixar um timeout comum do BFF cancelar a meio caminho e deixar a Hinova e o APROVEC
+        // fora de sincronia.
+        var obs = $"Cadastrado via indicação de {pre.IndicadorNome} em {DateOnly.FromDateTime(DateTime.UtcNow):dd/MM/yyyy}.";
+        var codigoVoluntario = await hinova.CadastrarVoluntarioAsync(tokenUsuario, new CadastrarVoluntarioRequest(
+            pre.Nome, pre.Cpf, pre.Celular, pre.Email, pre.Logradouro, pre.Numero, pre.Complemento, pre.Bairro,
+            pre.Cidade, pre.Estado, pre.Cep, indicador.CooperativaCodigos, indicadorCodigo, obs), CancellationToken.None);
+
         var (newUserId, enderecoEmail, inviteToken) = await db.InTenantAsync(tenant, actor, async tx =>
         {
-            var solicitacao = await tx.QuerySingleOrDefaultAsync<SolicitacaoRow>(
-                "select * from solicitacoes_cadastro where tenant_id = @tenant and id = @id for update",
-                new { tenant, id }) ?? throw new ApiProblem(StatusCodes.Status404NotFound, "solicitacao.not_found");
+            var solicitacao = await tx.QuerySingleAsync<SolicitacaoRow>(
+                "select * from solicitacoes_cadastro where tenant_id = @tenant and id = @id for update", new { tenant, id });
             if (solicitacao.Status != "pendente")
                 throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.ja_resolvida");
 
-            var indicadorCodigo = await tx.QuerySingleOrDefaultAsync<string>(
-                "select codigo_voluntario from hinova_voluntario_mapping where tenant_id = @tenant and user_id = @indicadorId",
-                new { tenant, indicadorId = solicitacao.IndicadorUserId })
-                ?? throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.indicador_sem_hinova");
-            var indicadorNome = await tx.QuerySingleAsync<string>(
-                "select name from users where id = @id", new { id = solicitacao.IndicadorUserId });
-
-            var tokenUsuario = await HinovaAuth.GetTokenUsuarioAsync(db, tenant, actor, cipher, hinova, ct);
-
-            var existente = await hinova.BuscarVoluntarioAsync(tokenUsuario, solicitacao.Cpf, ct);
-            if (existente is not null)
-                throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.cpf_ja_cadastrado");
-
-            var indicador = await hinova.BuscarVoluntarioAsync(tokenUsuario, indicadorCodigo, ct)
-                ?? throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.indicador_sem_hinova");
-
-            var obs = $"Cadastrado via indicação de {indicadorNome} em {DateOnly.FromDateTime(DateTime.UtcNow):dd/MM/yyyy}.";
-            var codigoVoluntario = await hinova.CadastrarVoluntarioAsync(tokenUsuario, new CadastrarVoluntarioRequest(
-                solicitacao.Nome, solicitacao.Cpf, solicitacao.Celular, solicitacao.Email,
-                solicitacao.Logradouro, solicitacao.Numero, solicitacao.Complemento, solicitacao.Bairro,
-                solicitacao.Cidade, solicitacao.Estado, solicitacao.Cep, indicador.CooperativaCodigos, indicadorCodigo, obs), ct);
-
-            var roleIds = (await tx.QueryAsync<Guid>(
-                "select id from roles where tenant_id = @tenant and source_template_key = 'consultor'", new { tenant })).ToArray();
-
             var userId = Guid.CreateVersion7();
-            await RoleGuards.EnsureCanGrantRolesAsync(tx, mine, roleIds);
             await UserEndpoints.CreateUserWithRolesAsync(tx, tenant, userId, solicitacao.Nome, solicitacao.Email, solicitacao.IndicadorUserId, roleIds);
             await UserEndpoints.LinkHinovaAsync(tx, tenant, userId, actor, codigoVoluntario, solicitacao.Nome, solicitacao.Cpf);
             var inviteToken = await UserEndpoints.CreateInviteTokenAsync(tx, tenant, actor, userId, solicitacao.Nome, solicitacao.Email,
@@ -195,7 +212,7 @@ public static class SolicitacaoCadastroEndpoints
             await WriteAsync(tx, tenant, actor, "solicitacao.aprovar", "solicitacoes_cadastro", id, null, new { userId, codigoVoluntario });
 
             return (userId, solicitacao.Email, inviteToken);
-        }, ct);
+        }, CancellationToken.None);
 
         await email.SendAsync(enderecoEmail, "Convite de acesso",
             EmailTemplates.AccessLink(

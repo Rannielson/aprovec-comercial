@@ -34,6 +34,21 @@ public static class RoleGuards
     }
 
     /// <summary>
+    /// Grant ceiling for acting on an existing user's identity or credentials (editing their
+    /// email, resetting their password): the actor must personally hold every permission the
+    /// target's current roles grant, at an equal-or-greater scope -- otherwise a narrow
+    /// onboarding role could take over the Administrador account. The target's role ids come
+    /// from app.user_role_ids, NOT a plain select on user_roles: user_roles RLS hides another
+    /// user's role rows from anyone without usuarios.gerenciar_perfis, so a plain select would
+    /// return nothing for exactly the actors this guard exists to stop, and silently pass.
+    /// </summary>
+    public static async Task EnsureCanManageUserAsync(Tx tx, PermissionSet mine, Guid userId)
+    {
+        var roleIds = (await tx.QueryAsync<Guid>("select * from app.user_role_ids(@userId)", new { userId })).ToArray();
+        await EnsureCanGrantRolePermissionsAsync(tx, mine, roleIds);
+    }
+
+    /// <summary>
     /// The core grant-ceiling check, factored out so it can be applied symmetrically to both
     /// additions and removals: an actor may only add or remove a (permission, scope) grant
     /// they personally hold at an equal-or-greater scope. Without this applied to removals

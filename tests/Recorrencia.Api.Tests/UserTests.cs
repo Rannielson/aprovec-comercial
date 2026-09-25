@@ -739,4 +739,81 @@ public class UserTests(ApiFixture api)
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
+
+    // A role holding usuarios.convidar is meant to onboard new consultants, not to take over
+    // accounts more privileged than itself: resetting a user's password or changing their
+    // email (then walking forgot-password) is gated by the same grant ceiling as removing
+    // that user's roles would be (RoleGuards.EnsureCanManageUserAsync).
+    //
+    // The onboarding role also holds estrutura.visualizar/tenant: without it Maria (a
+    // consultor, 'direct' scope) cannot even see the Administrador, so the request would stop
+    // at users.not_found and never reach the ceiling check. With it, the check is what stops
+    // the takeover -- and it must read the target's roles past user_roles RLS, which hides
+    // them from anyone without usuarios.gerenciar_perfis.
+    private async Task SeedOnboardingRoleForMariaAsync(SeededTenant s)
+    {
+        var onboardingRole = Guid.NewGuid();
+        await api.SqlAsync(
+            """
+            insert into roles (id, tenant_id, name) values (@onboardingRole, @tenant, 'Onboarding');
+            insert into role_permissions (tenant_id, role_id, permission_key, scope) values
+              (@tenant, @onboardingRole, 'usuarios.convidar', null),
+              (@tenant, @onboardingRole, 'estrutura.visualizar', 'tenant');
+            insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @maria, @onboardingRole);
+            """,
+            new { onboardingRole, tenant = s.TenantId, maria = s.Maria });
+    }
+
+    [Fact]
+    public async Task Convidar_only_actor_cannot_reset_the_admin_password()
+    {
+        var s = await api.SeedAsync();
+        await SeedOnboardingRoleForMariaAsync(s);
+        var hashBefore = await api.SqlScalarAsync<string>("select password_hash from users where id = @admin", new { admin = s.Admin });
+
+        var response = await (await LoginAsync(s, "maria")).PutAsync($"/users/{s.Admin}/password", new { password = "senha-invasora-123" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("role.grant_exceeds_own", await ApiClient.CodeAsync(response));
+        Assert.Equal(hashBefore, await api.SqlScalarAsync<string>("select password_hash from users where id = @admin", new { admin = s.Admin }));
+    }
+
+    [Fact]
+    public async Task Convidar_only_actor_cannot_change_the_admin_email()
+    {
+        var s = await api.SeedAsync();
+        await SeedOnboardingRoleForMariaAsync(s);
+
+        var response = await (await LoginAsync(s, "maria")).PutAsync($"/users/{s.Admin}", new { name = "Sequestrado", email = $"invasor@{s.Slug}.local" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("role.grant_exceeds_own", await ApiClient.CodeAsync(response));
+        Assert.Equal($"admin@{s.Slug}.local", await api.SqlScalarAsync<string>("select email from users where id = @admin", new { admin = s.Admin }));
+    }
+
+    // Positive control for the headline flow: a usuarios.convidar holder WITHOUT
+    // usuarios.desligar can create a participant with a password (activating them), and can
+    // later edit and reset the password of that roleless participant.
+    [Fact]
+    public async Task Convidar_actor_without_desligar_can_create_with_password_then_edit_and_reset_it()
+    {
+        var s = await api.SeedAsync();
+        await SeedOnboardingRoleForMariaAsync(s);
+        var maria = await LoginAsync(s, "maria");
+        var email = $"onboarded@{s.Slug}.local";
+
+        var created = await maria.PostAsync("/users", new { name = "Novo Consultor", email, password = "senha-inicial-123" });
+        await ApiClient.ExpectAsync(created, HttpStatusCode.Created);
+        var id = (await created.Content.ReadFromJsonAsync<CreatedDto>(ApiClient.Json))!.Id;
+        Assert.Equal("ativo", await api.SqlScalarAsync<string>("select status from users where id = @id", new { id }));
+
+        await ApiClient.ExpectAsync(
+            await maria.PutAsync($"/users/{id}", new { name = "Novo Consultor Silva", email }),
+            HttpStatusCode.NoContent);
+        await ApiClient.ExpectAsync(
+            await maria.PutAsync($"/users/{id}/password", new { password = "senha-trocada-123" }),
+            HttpStatusCode.NoContent);
+
+        await api.Client(s.Slug).LoginAsync(email, "senha-trocada-123");
+    }
 }

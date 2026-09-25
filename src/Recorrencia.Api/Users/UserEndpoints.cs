@@ -233,7 +233,8 @@ public static class UserEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> UpdateAsync(Guid id, UpdateUserRequest body, RequestContext request, Database db, CancellationToken ct)
+    private static async Task<IResult> UpdateAsync(Guid id, UpdateUserRequest body, RequestContext request, Database db,
+        CurrentPermissions permissions, CancellationToken ct)
     {
         var tenant = request.RequireTenant();
         var actor = request.RequireUser();
@@ -244,10 +245,12 @@ public static class UserEndpoints
         if (!MailAddress.TryCreate(address, out var parsedAddress) || parsedAddress.Address != address)
             throw new ApiProblem(StatusCodes.Status400BadRequest, "users.invalid_email");
 
+        var mine = await permissions.GetAsync(ct);
         await db.InTenantAsync(tenant, actor, async tx =>
         {
             var current = await tx.QuerySingleOrDefaultAsync<UserRow>("select id, name, email from users where id = @id for update", new { id })
                 ?? throw new ApiProblem(StatusCodes.Status404NotFound, "users.not_found");
+            await RoleGuards.EnsureCanManageUserAsync(tx, mine, id);
             try
             {
                 await tx.ExecuteAsync("update users set name = @name, email = @address where id = @id", new { name, address, id });
@@ -264,18 +267,20 @@ public static class UserEndpoints
     }
 
     private static async Task<IResult> SetPasswordAsync(Guid id, SetUserPasswordRequest body, RequestContext request,
-        Database db, PasswordHasher hasher, CancellationToken ct)
+        Database db, PasswordHasher hasher, CurrentPermissions permissions, CancellationToken ct)
     {
         var tenant = request.RequireTenant();
         var actor = request.RequireUser();
         PasswordPolicy.Validate(body.Password);
         var hash = hasher.Hash(body.Password!);
+        var mine = await permissions.GetAsync(ct);
         await db.InTenantAsync(tenant, actor, async tx =>
         {
             var status = await tx.QuerySingleOrDefaultAsync<string>("select status from users where id = @id for update", new { id })
                 ?? throw new ApiProblem(StatusCodes.Status404NotFound, "users.not_found");
             if (status == "desligado")
                 throw new ApiProblem(StatusCodes.Status409Conflict, "users.desligado");
+            await RoleGuards.EnsureCanManageUserAsync(tx, mine, id);
             await tx.ExecuteAsync("select app.set_password_admin(@id, @hash)", new { id, hash });
             await WriteAsync(tx, tenant, actor, "users.set_password_admin", "users", id, null, null);
             return 0;

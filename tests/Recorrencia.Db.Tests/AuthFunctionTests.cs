@@ -365,4 +365,57 @@ public class AuthFunctionTests(PostgresFixture db)
         Assert.Equal("auth.forbidden", ex.MessageText);
         Assert.Equal("hash-de-teste", await _seed.ScalarAsync<string>("select password_hash from users where id = @u", new { u }));
     }
+
+    // user_roles RLS hides another user's role rows from anyone without
+    // usuarios.gerenciar_perfis, which is exactly why the API's grant-ceiling check on
+    // PUT /users/{id}[/password] must read them through app.user_role_ids instead.
+    [Fact]
+    public async Task User_role_ids_returns_the_target_roles_that_user_roles_rls_hides_from_a_convidar_actor()
+    {
+        var t = await _seed.TenantAsync();
+        var other = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var actor = await _seed.UserAsync(t, "Onboarding");
+        var actorRole = await _seed.RoleAsync(t, "Só convidar", ("usuarios.convidar", null));
+        await _seed.AssignRoleAsync(t, actor, actorRole);
+        var target = await _seed.UserAsync(t, "Alvo");
+        var targetRole = await _seed.RoleAsync(t, "Poderoso", ("usuarios.gerenciar_perfis", null));
+        await _seed.AssignRoleAsync(t, target, targetRole);
+
+        var viaPlainSelect = await db.AsAppUserAsync(t, actor, (c, tx) => c.QueryAsync<Guid>(
+            "select role_id from user_roles where user_id = @target", new { target }, tx));
+        Assert.Empty(viaPlainSelect);
+
+        var viaFunction = await db.AsAppUserAsync(t, actor, (c, tx) => c.QueryAsync<Guid>(
+            "select * from app.user_role_ids(@target)", new { target }, tx));
+        Assert.Equal([targetRole], viaFunction);
+
+        // Scoped to the session's tenant: a convidar holder in another tenant reads nothing.
+        await _seed.EnableModulesAsync(other);
+        var otherActor = await _seed.UserAsync(other, "Onboarding de outro tenant");
+        var otherRole = await _seed.RoleAsync(other, "Só convidar", ("usuarios.convidar", null));
+        await _seed.AssignRoleAsync(other, otherActor, otherRole);
+        var fromOtherTenant = await db.AsAppUserAsync(other, otherActor, (c, tx) => c.QueryAsync<Guid>(
+            "select * from app.user_role_ids(@target)", new { target }, tx));
+        Assert.Empty(fromOtherTenant);
+    }
+
+    [Fact]
+    public async Task User_role_ids_requires_usuarios_convidar()
+    {
+        var t = await _seed.TenantAsync();
+        await _seed.EnableModulesAsync(t);
+        var actor = await _seed.UserAsync(t, "Sem convidar");
+        var role = await _seed.RoleAsync(t, "Só visualizar", ("estrutura.visualizar", "tenant"));
+        await _seed.AssignRoleAsync(t, actor, role);
+        var target = await _seed.UserAsync(t, "Alvo");
+
+        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(t, actor, (c, tx) => c.QueryAsync<Guid>(
+            "select * from app.user_role_ids(@target)", new { target }, tx)));
+        Assert.Equal("auth.forbidden", ex.MessageText);
+
+        var noActor = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(t, null, (c, tx) => c.QueryAsync<Guid>(
+            "select * from app.user_role_ids(@target)", new { target }, tx)));
+        Assert.Equal("auth.forbidden", noActor.MessageText);
+    }
 }

@@ -23,3 +23,26 @@ end
 $$;
 
 grant execute on function app.set_password_admin(uuid, text) to app_user, app_superadmin;
+
+-- PUT /users/{id} and PUT /users/{id}/password must refuse to act on a user whose roles
+-- outrank the actor (RoleGuards grant ceiling), which needs the TARGET's role ids. But
+-- user_roles_select only shows another user's role rows to usuarios.gerenciar_perfis
+-- holders, so for a usuarios.convidar-only actor a plain select comes back empty and the
+-- ceiling check silently passes. This reads them past RLS, scoped to the current tenant,
+-- and only for an actor who holds usuarios.convidar (the permission both callers require).
+create function app.user_role_ids(p_user uuid)
+returns setof uuid
+language plpgsql stable security definer set search_path = pg_catalog, public, app
+as $$
+begin
+  if not app.has_permission('usuarios.convidar') then
+    raise exception 'auth.forbidden' using errcode = 'P0001';
+  end if;
+
+  return query
+    select ur.role_id from user_roles ur
+     where ur.user_id = p_user and ur.tenant_id = app.current_tenant();
+end
+$$;
+
+grant execute on function app.user_role_ids(uuid) to app_user;

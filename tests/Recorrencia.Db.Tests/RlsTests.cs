@@ -97,15 +97,30 @@ public class RlsTests(PostgresFixture db)
     }
 
     [Fact]
-    public async Task App_user_cannot_write_boletos()
+    public async Task Writing_boletos_requires_integracoes_gerenciar()
     {
+        // Consultor (Joao) doesn't hold integracoes.gerenciar -- the Hinova boleto import is the
+        // only write path onto boletos, and it's gated the same way every other write this
+        // integration makes already is.
         var s = await RlsScenario.CreateAsync(db);
-        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(s.TenantA, s.Admin, (c, t) => c.ExecuteAsync(
+        var ex = await DbExtensions.ThrowsPgAsync(() => db.AsAppUserAsync(s.TenantA, s.Joao, (c, t) => c.ExecuteAsync(
             """
             insert into boletos (tenant_id, participante_id, associado_ref, associado_nome, valor, status, vencimento)
             values (@a, @a2, 'X', 'X', 10, 'a_vencer', date '2026-10-01')
-            """, new { a = s.TenantA, a2 = s.Admin }, t)));
+            """, new { a = s.TenantA, a2 = s.Joao }, t)));
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, ex.SqlState);
+    }
+
+    [Fact]
+    public async Task Administrador_can_write_boletos()
+    {
+        var s = await RlsScenario.CreateAsync(db);
+        var affected = await db.AsAppUserAsync(s.TenantA, s.Admin, (c, t) => c.ExecuteAsync(
+            """
+            insert into boletos (tenant_id, participante_id, associado_ref, associado_nome, valor, status, vencimento)
+            values (@a, @a2, 'X', 'X', 10, 'a_vencer', date '2026-10-01')
+            """, new { a = s.TenantA, a2 = s.Admin }, t));
+        Assert.Equal(1, affected);
     }
 
     [Fact]

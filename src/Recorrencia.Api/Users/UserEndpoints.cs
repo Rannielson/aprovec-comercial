@@ -17,6 +17,7 @@ public static class UserEndpoints
     public sealed record SupervisorRequest(Guid? SupervisorId);
     public sealed record UserRolesRequest(Guid[]? RoleIds);
     public sealed record SetUserPasswordRequest(string? Password);
+    public sealed record UpdateUserRequest(string? Name, string? Email);
 
     public sealed class UserRow
     {
@@ -37,6 +38,7 @@ public static class UserEndpoints
     {
         app.MapGet("/users", ListAsync).RequirePermission("estrutura.visualizar");
         app.MapPost("/users", InviteAsync).RequirePermission("usuarios.convidar");
+        app.MapPut("/users/{id:guid}", UpdateAsync).RequirePermission("usuarios.convidar");
         app.MapPut("/users/{id:guid}/supervisor", ChangeSupervisorAsync).RequirePermission("estrutura.editar");
         app.MapPost("/users/{id:guid}/deactivate", DeactivateAsync).RequirePermission("usuarios.desligar");
         app.MapPut("/users/{id:guid}/password", SetPasswordAsync).RequirePermission("usuarios.convidar");
@@ -226,6 +228,36 @@ public static class UserEndpoints
             await RoleGuards.EnsureProfileManagerRemainsAsync(tx);
             await tx.ExecuteAsync("select app.revoke_user_sessions(@id)", new { id });
             await WriteAsync(tx, tenant, actor, "users.deactivate", "users", id, new { status }, new { status = "desligado" });
+            return 0;
+        }, ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> UpdateAsync(Guid id, UpdateUserRequest body, RequestContext request, Database db, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        var name = (body.Name ?? "").Trim();
+        var address = (body.Email ?? "").Trim().ToLowerInvariant();
+        if (name.Length == 0)
+            throw new ApiProblem(StatusCodes.Status400BadRequest, "users.name_required");
+        if (!MailAddress.TryCreate(address, out var parsedAddress) || parsedAddress.Address != address)
+            throw new ApiProblem(StatusCodes.Status400BadRequest, "users.invalid_email");
+
+        await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            var current = await tx.QuerySingleOrDefaultAsync<UserRow>("select * from users where id = @id for update", new { id })
+                ?? throw new ApiProblem(StatusCodes.Status404NotFound, "users.not_found");
+            try
+            {
+                await tx.ExecuteAsync("update users set name = @name, email = @address where id = @id", new { name, address, id });
+            }
+            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
+            {
+                throw new ApiProblem(StatusCodes.Status409Conflict, "users.email_taken");
+            }
+            await WriteAsync(tx, tenant, actor, "users.update", "users", id,
+                new { current.Name, current.Email }, new { name, address });
             return 0;
         }, ct);
         return Results.NoContent();

@@ -699,4 +699,44 @@ public class UserTests(ApiFixture api)
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
+
+    [Fact]
+    public async Task Admin_updates_name_and_email()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        var newEmail = $"maria-nova@{s.Slug}.local";
+
+        await ApiClient.ExpectAsync(
+            await admin.PutAsync($"/users/{s.Maria}", new { name = "Maria Nova Silva", email = newEmail }),
+            HttpStatusCode.NoContent);
+
+        var sees = await admin.GetJsonAsync<List<UserDto>>("/users");
+        var maria = sees.Single(u => u.Id == s.Maria);
+        Assert.Equal("Maria Nova Silva", maria.Name);
+        Assert.Equal(newEmail, maria.Email);
+    }
+
+    [Fact]
+    public async Task Updating_to_a_taken_email_is_rejected()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+
+        var response = await admin.PutAsync($"/users/{s.Maria}", new { name = "Maria", email = $"joao@{s.Slug}.local" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("users.email_taken", await ApiClient.CodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Updating_without_usuarios_convidar_is_forbidden()
+    {
+        var s = await api.SeedAsync();
+        var joao = await LoginAsync(s, "joao");
+
+        var response = await joao.PutAsync($"/users/{s.Maria}", new { name = "X", email = $"x@{s.Slug}.local" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
 }

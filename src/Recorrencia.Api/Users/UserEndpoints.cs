@@ -12,7 +12,8 @@ namespace Recorrencia.Api.Users;
 
 public static class UserEndpoints
 {
-    public sealed record InviteUserRequest(string? Name, string? Email, Guid? SupervisorId, Guid[]? RoleIds);
+    public sealed record InviteUserRequest(string? Name, string? Email, Guid? SupervisorId, Guid[]? RoleIds,
+        string? CodigoVoluntario, string? NomeHinova, string? CpfHinova);
     public sealed record SupervisorRequest(Guid? SupervisorId);
     public sealed record UserRolesRequest(Guid[]? RoleIds);
 
@@ -76,6 +77,10 @@ public static class UserEndpoints
         if (body.SupervisorId is not null && !mine.Has("estrutura.editar"))
             throw new ApiProblem(StatusCodes.Status403Forbidden, "auth.forbidden");
 
+        var hasHinovaFields = body.CodigoVoluntario is not null || body.NomeHinova is not null || body.CpfHinova is not null;
+        if (hasHinovaFields && !mine.Has("integracoes.gerenciar"))
+            throw new ApiProblem(StatusCodes.Status403Forbidden, "auth.forbidden");
+
         var id = Guid.CreateVersion7();
         var token = Tokens.New();
         await db.InTenantAsync(tenant, actor, async tx =>
@@ -99,9 +104,27 @@ public static class UserEndpoints
             foreach (var roleId in roleIds.Distinct())
                 await tx.ExecuteAsync("insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @id, @roleId)", new { tenant, id, roleId });
 
+            if (hasHinovaFields)
+            {
+                try
+                {
+                    await tx.ExecuteAsync(
+                        """
+                        insert into hinova_voluntario_mapping (tenant_id, user_id, codigo_voluntario, nome_hinova, cpf_hinova, mapped_by)
+                        values (@tenant, @id, @codigo, @nome, @cpf, @actor)
+                        """,
+                        new { tenant, actor, id, codigo = body.CodigoVoluntario, nome = body.NomeHinova, cpf = body.CpfHinova });
+                }
+                catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
+                {
+                    throw new ApiProblem(StatusCodes.Status409Conflict, "hinova.vinculo_duplicado");
+                }
+            }
+
             await tx.ExecuteAsync("select app.create_invite(@id, @hash, 'convite', @ttl)",
                 new { id, hash = Tokens.Hash(token), ttl = options.Value.InviteTtlSeconds });
-            await WriteAsync(tx, tenant, actor, "users.invite", "users", id, null, new { name, email = address, body.SupervisorId, roleIds });
+            await WriteAsync(tx, tenant, actor, "users.invite", "users", id, null,
+                new { name, email = address, body.SupervisorId, roleIds, body.CodigoVoluntario, body.NomeHinova, body.CpfHinova });
             return 0;
         }, ct);
 

@@ -29,6 +29,11 @@ builder.Services.AddOptions<InternalOptions>().BindConfiguration("Internal")
     .Validate(o => o.Key.Length >= 32, "Internal:Key precisa ter pelo menos 32 caracteres.")
     .ValidateOnStart();
 
+builder.Services.AddOptions<ResendOptions>().BindConfiguration("Resend")
+    .Validate(o => string.IsNullOrEmpty(o.ApiKey) || !string.IsNullOrEmpty(o.FromAddress),
+        "Resend:FromAddress é obrigatório quando Resend:ApiKey está definido.")
+    .ValidateOnStart();
+
 builder.Services.AddOptions<HinovaOptions>().BindConfiguration("Hinova")
     .Validate(o =>
     {
@@ -76,10 +81,13 @@ builder.Services.AddScoped<RequestContext>();
 builder.Services.AddScoped<CurrentPermissions>();
 
 builder.Services.AddSingleton<LinkBuilder>();
+builder.Services.AddHttpClient<ResendEmailSender>(c => c.BaseAddress = new Uri("https://api.resend.com/"));
 builder.Services.AddSingleton<IEmailSender>(sp =>
-    string.IsNullOrEmpty(sp.GetRequiredService<IOptions<EmailOptions>>().Value.OutboxDir)
-        ? ActivatorUtilities.CreateInstance<LogEmailSender>(sp)
-        : ActivatorUtilities.CreateInstance<FileEmailSender>(sp));
+    !string.IsNullOrEmpty(sp.GetRequiredService<IOptions<ResendOptions>>().Value.ApiKey)
+        ? sp.GetRequiredService<ResendEmailSender>()
+        : string.IsNullOrEmpty(sp.GetRequiredService<IOptions<EmailOptions>>().Value.OutboxDir)
+            ? ActivatorUtilities.CreateInstance<LogEmailSender>(sp)
+            : ActivatorUtilities.CreateInstance<FileEmailSender>(sp));
 
 var app = builder.Build();
 

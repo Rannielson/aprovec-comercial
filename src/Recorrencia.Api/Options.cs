@@ -38,3 +38,10 @@ public sealed class HinovaOptions
     public string EncryptionKey { get; set; } = "";
     public bool UseFake { get; set; }
 }
+
+public sealed class ResendOptions
+{
+    public string ApiKey { get; set; } = "";
+    /// <summary>Bare address only (e.g. "onboarding@resend.dev") -- the sender display name is fixed in code.</summary>
+    public string FromAddress { get; set; } = "";
+}

@@ -43,6 +43,8 @@ services:
       Web__RootDomain: ${ROOT_DOMAIN:?defina ROOT_DOMAIN no .env}
       Hinova__EncryptionKey: ${HINOVA_ENCRYPTION_KEY:?defina HINOVA_ENCRYPTION_KEY no .env}
       Hinova__UseFake: ${HINOVA_USE_FAKE:-false}
+      Resend__ApiKey: ${RESEND_API_KEY:-}
+      Resend__FromAddress: ${RESEND_FROM_ADDRESS:-onboarding@resend.dev}
     expose:
       - "8080"
     depends_on:

@@ -111,7 +111,7 @@ dotnet run --project src/Recorrencia.Db -- migrate
 - Empresa de exemplo: http://aprovec.localhost:3000 (`joao@aprovec.local`, `maria@aprovec.local`, `pedro@aprovec.local`, `coordenacao@aprovec.local`, `admin@aprovec.local`).
 - Plataforma: http://admin.localhost:3000 (`admin@plataforma.local`).
 - Senha de todos no desenvolvimento: `senha-dev-123`.
-- E-mails (convites e redefinições) são gravados em `tmp/emails/`.
+- E-mails (convites e redefinições) são gravados em `tmp/emails/` — a menos que `RESEND_API_KEY` esteja definida no `.env`, caso em que passam a ser enviados de verdade pelo Resend (veja a seção Containers abaixo).
 
 ### Testes
 
@@ -123,7 +123,7 @@ dotnet test
 
 ### Containers
 
-`docker compose up -d --build` sobe banco, migrações, API (sem porta publicada) e web em `127.0.0.1:3000`. Em produção, coloque um proxy reverso com TLS curinga (`*.seu-dominio`) na frente do `web`, defina `ROOT_DOMAIN`, `WEB_SCHEME=https` e `COOKIE_SECURE=true`, e garanta que o proxy sobrescreva `X-Forwarded-For` e `X-Forwarded-Host` (nunca repasse os valores recebidos do cliente sem verificação), já que ambos alimentam a identificação do IP do cliente e do tenant. O envio de e-mail por SMTP ainda não está implementado: até lá, os e-mails aparecem no log da API. `HINOVA_ENCRYPTION_KEY` é obrigatória (o container `api` recusa subir sem ela) e precisa ser um valor base64 de 32 bytes, por exemplo gerado com `openssl rand -base64 32`; `HINOVA_USE_FAKE` tem padrão `false` (usa a API real da Hinova) e deve ficar sem definição ou `false` em produção — só use `true` em desenvolvimento local/E2E, onde ela troca o cliente real por um fake determinístico.
+`docker compose up -d --build` sobe banco, migrações, API (sem porta publicada) e web em `127.0.0.1:3000`. Em produção, coloque um proxy reverso com TLS curinga (`*.seu-dominio`) na frente do `web`, defina `ROOT_DOMAIN`, `WEB_SCHEME=https` e `COOKIE_SECURE=true`, e garanta que o proxy sobrescreva `X-Forwarded-For` e `X-Forwarded-Host` (nunca repasse os valores recebidos do cliente sem verificação), já que ambos alimentam a identificação do IP do cliente e do tenant. O envio de e-mail usa o [Resend](https://resend.com): defina `RESEND_API_KEY` (uma chave real, `re_...`, da sua conta) e `RESEND_FROM_ADDRESS` no `.env` para ativá-lo; deixando `RESEND_API_KEY` vazia (padrão), os e-mails continuam só aparecendo no log da API. `RESEND_FROM_ADDRESS` tem padrão `onboarding@resend.dev`, o domínio de teste do próprio Resend — com ele, só é possível enviar para o e-mail cadastrado na conta Resend; para convidar usuários de verdade, verifique um domínio próprio em resend.com/domains e aponte `RESEND_FROM_ADDRESS` para um endereço desse domínio, sem precisar mudar código. `HINOVA_ENCRYPTION_KEY` é obrigatória (o container `api` recusa subir sem ela) e precisa ser um valor base64 de 32 bytes, por exemplo gerado com `openssl rand -base64 32`; `HINOVA_USE_FAKE` tem padrão `false` (usa a API real da Hinova) e deve ficar sem definição ou `false` em produção — só use `true` em desenvolvimento local/E2E, onde ela troca o cliente real por um fake determinístico.
 
 Para criar o primeiro administrador da plataforma num deploy em containers:
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useState, type FormEvent } from 'react';
 import type { FormState } from '@/lib/form-state';
 import type { PlanoCarreira } from '@/lib/types';
 import { salvarPlanoCarreira } from './actions';
@@ -10,7 +10,14 @@ type RegraRow = { tipo: 'propria' | 'upline'; nivel: string; taxa: string };
 
 export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(salvarPlanoCarreira, {});
+  const [name, setName] = useState(plano?.name ?? '');
+  const [classificacao, setClassificacao] = useState<string>(plano?.classificacao ?? 'clt_interno');
+  const [status, setStatus] = useState(plano?.status ?? 'ativo');
+  const [janelaApuracaoDias, setJanelaApuracaoDias] = useState(String(plano?.janelaApuracaoDias ?? 30));
   const [metaMinimaAtiva, setMetaMinimaAtiva] = useState(plano?.metaMinimaContratos != null);
+  const [metaMinimaContratos, setMetaMinimaContratos] = useState(plano?.metaMinimaContratos != null ? String(plano.metaMinimaContratos) : '');
+  const [metaMinimaFonteData, setMetaMinimaFonteData] = useState(plano?.metaMinimaFonteData ?? 'contrato');
+  const [bonusExtraValor, setBonusExtraValor] = useState(plano?.bonusExtraValor != null ? String(plano.bonusExtraValor) : '');
   const [recorrenciaAtiva, setRecorrenciaAtiva] = useState(plano?.recorrenciaAtiva ?? false);
   const [faixas, setFaixas] = useState<FaixaRow[]>(
     plano?.faixas.map((f) => ({
@@ -22,17 +29,49 @@ export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
   const [regras, setRegras] = useState<RegraRow[]>(
     plano?.regrasRecorrencia.map((r) => ({ tipo: r.tipo, nivel: r.nivel === null ? '' : String(r.nivel), taxa: String(r.taxa) })) ?? [],
   );
+  const [clientError, setClientError] = useState<string | null>(null);
+
+  function hasDuplicateRegra(rows: RegraRow[]): boolean {
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const key = r.tipo === 'propria' ? 'propria' : `upline:${r.nivel}`;
+      if (seen.has(key)) return true;
+      seen.add(key);
+    }
+    return false;
+  }
+
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    setClientError(null);
+    if (recorrenciaAtiva && regras.length === 0) {
+      e.preventDefault();
+      setClientError('Ative ao menos uma taxa de recorrência ou desmarque "Ativar recorrência adicional".');
+      return;
+    }
+    if (hasDuplicateRegra(regras)) {
+      e.preventDefault();
+      setClientError('Taxas de recorrência duplicadas: só é permitida uma linha "própria" e uma linha por nível de upline.');
+      return;
+    }
+    for (const faixa of faixas) {
+      if (faixa.quantidadeMax !== '' && Number(faixa.quantidadeMax) < Number(faixa.quantidadeMin)) {
+        e.preventDefault();
+        setClientError('O valor máximo de uma faixa não pode ser menor que o mínimo.');
+        return;
+      }
+    }
+  }
 
   return (
-    <form action={formAction} className="form">
+    <form action={formAction} onSubmit={handleSubmit} className="form">
       {plano && <input type="hidden" name="id" value={plano.id} />}
       <label>
         Nome
-        <input type="text" name="name" defaultValue={plano?.name} required />
+        <input type="text" name="name" value={name} onChange={(e) => setName(e.target.value)} required />
       </label>
       <label>
         Classificação
-        <select name="classificacao" defaultValue={plano?.classificacao ?? 'clt_interno'} required>
+        <select name="classificacao" value={classificacao} onChange={(e) => setClassificacao(e.target.value)} required>
           <option value="clt_interno">CLT Interno</option>
           <option value="clt_externo">CLT Externo</option>
           <option value="so_externo">Só Externo</option>
@@ -41,7 +80,7 @@ export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
       {plano && (
         <label>
           Status
-          <select name="status" defaultValue={plano.status}>
+          <select name="status" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="ativo">Ativo</option>
             <option value="inativo">Inativo</option>
           </select>
@@ -49,7 +88,14 @@ export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
       )}
       <label>
         Janela de apuração (dias)
-        <input type="number" name="janelaApuracaoDias" defaultValue={plano?.janelaApuracaoDias ?? 30} min={1} required />
+        <input
+          type="number"
+          name="janelaApuracaoDias"
+          value={janelaApuracaoDias}
+          onChange={(e) => setJanelaApuracaoDias(e.target.value)}
+          min={1}
+          required
+        />
       </label>
 
       <fieldset>
@@ -68,6 +114,7 @@ export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
               type="number"
               placeholder="Máximo (vazio = sem limite)"
               value={faixa.quantidadeMax}
+              min={faixa.quantidadeMin || undefined}
               onChange={(e) => setFaixas(faixas.map((f, j) => (j === i ? { ...f, quantidadeMax: e.target.value } : f)))}
             />
             <input
@@ -98,11 +145,18 @@ export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
         <>
           <label>
             Meta mínima de contratos
-            <input type="number" name="metaMinimaContratos" defaultValue={plano?.metaMinimaContratos ?? ''} min={1} required />
+            <input
+              type="number"
+              name="metaMinimaContratos"
+              value={metaMinimaContratos}
+              onChange={(e) => setMetaMinimaContratos(e.target.value)}
+              min={1}
+              required
+            />
           </label>
           <label>
             Fonte da data
-            <select name="metaMinimaFonteData" defaultValue={plano?.metaMinimaFonteData ?? 'contrato'} required>
+            <select name="metaMinimaFonteData" value={metaMinimaFonteData} onChange={(e) => setMetaMinimaFonteData(e.target.value)} required>
               <option value="contrato">Data do contrato</option>
               <option value="cadastro">Data de cadastro</option>
             </select>
@@ -112,7 +166,14 @@ export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
 
       <label>
         Bônus extra (regime especial)
-        <input type="number" name="bonusExtraValor" step="0.01" min={0.01} defaultValue={plano?.bonusExtraValor ?? ''} />
+        <input
+          type="number"
+          name="bonusExtraValor"
+          step="0.01"
+          min={0.01}
+          value={bonusExtraValor}
+          onChange={(e) => setBonusExtraValor(e.target.value)}
+        />
       </label>
       <p className="muted">Deixe em branco se este plano não tem valor extra fixo.</p>
 
@@ -178,6 +239,11 @@ export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
       <input type="hidden" name="recorrenciaAtiva" value={recorrenciaAtiva ? '1' : ''} />
       <input type="hidden" name="regrasJson" value={JSON.stringify(regras)} />
 
+      {clientError && (
+        <p role="alert" className="error">
+          {clientError}
+        </p>
+      )}
       {state.error && (
         <p role="alert" className="error">
           {state.error}

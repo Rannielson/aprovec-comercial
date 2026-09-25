@@ -36,6 +36,11 @@ public static class UserEndpoints
         public Guid? SupervisorId { get; set; }
     }
 
+    public sealed class PlanoCarreiraRow
+    {
+        public Guid? PlanoCarreiraId { get; set; }
+    }
+
     public static void MapUserEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/users", ListAsync).RequirePermission("estrutura.visualizar");
@@ -297,9 +302,11 @@ public static class UserEndpoints
         var actor = request.RequireUser();
         await db.InTenantAsync(tenant, actor, async tx =>
         {
-            var exists = await tx.QuerySingleOrDefaultAsync<bool?>("select true from users where id = @id for update", new { id });
-            if (exists is null)
-                throw new ApiProblem(StatusCodes.Status404NotFound, "users.not_found");
+            var current = await tx.QuerySingleOrDefaultAsync<PlanoCarreiraRow>(
+                "select plano_carreira_id from users where id = @id for update", new { id })
+                ?? throw new ApiProblem(StatusCodes.Status404NotFound, "users.not_found");
+            if (current.PlanoCarreiraId == body.PlanoCarreiraId)
+                return 0;
             try
             {
                 await tx.ExecuteAsync("update users set plano_carreira_id = @planoCarreiraId where id = @id",
@@ -309,7 +316,8 @@ public static class UserEndpoints
             {
                 throw new ApiProblem(StatusCodes.Status400BadRequest, "plano_carreira.invalido");
             }
-            await WriteAsync(tx, tenant, actor, "users.set_plano_carreira", "users", id, null, new { body.PlanoCarreiraId });
+            await WriteAsync(tx, tenant, actor, "users.set_plano_carreira", "users", id,
+                new { current.PlanoCarreiraId }, new { body.PlanoCarreiraId });
             return 0;
         }, ct);
         return Results.NoContent();

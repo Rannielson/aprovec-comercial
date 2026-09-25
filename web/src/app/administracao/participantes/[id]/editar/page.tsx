@@ -31,7 +31,7 @@ export default async function EditarParticipantePage({ params }: { params: Promi
   const mapeamentos = canSeeHinova ? await apiFetch<HinovaMapeamento[]>('/integracoes/hinova/mapeamentos') : [];
   const mapeamento = mapeamentos.find((m) => m.userId === id) ?? null;
 
-  const canSeePlanos = has('estrutura.editar');
+  const canSeePlanos = has('estrutura.editar') && has('regras_comissao.visualizar');
   const planos = canSeePlanos ? await apiFetch<PlanoCarreira[]>('/planos-carreira') : [];
 
   return (

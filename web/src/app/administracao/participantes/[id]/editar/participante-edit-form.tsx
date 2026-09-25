@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import type { FormState } from '@/lib/form-state';
 import type { HinovaMapeamento, PlanoCarreira, UserNode } from '@/lib/types';
 import { editarParticipante } from '../../../actions';
@@ -15,6 +15,7 @@ export function ParticipanteEditForm({
   planos: PlanoCarreira[];
 }) {
   const [state, formAction, pending] = useActionState<FormState, FormData>(editarParticipante, {});
+  const [planoCarreiraId, setPlanoCarreiraId] = useState(user.planoCarreiraId ?? '');
 
   return (
     <form action={formAction} className="form">
@@ -49,7 +50,7 @@ export function ParticipanteEditForm({
           <input type="hidden" name="hasPlanos" value="1" />
           <label>
             Plano de carreira
-            <select name="planoCarreiraId" defaultValue={user.planoCarreiraId ?? ''}>
+            <select name="planoCarreiraId" value={planoCarreiraId} onChange={(e) => setPlanoCarreiraId(e.target.value)}>
               <option value="">Sem plano de carreira</option>
               {planos
                 .filter((p) => p.status === 'ativo' || p.id === user.planoCarreiraId)

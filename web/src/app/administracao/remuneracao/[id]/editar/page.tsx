@@ -11,6 +11,7 @@ export default async function EditarPlanoCarreiraPage({ params }: { params: Prom
   const me = await apiFetch<Me>('/me');
   const has = (key: string) => me.permissions.some((p) => p.key === key);
   if (!has('regras_comissao.editar')) redirect('/administracao/remuneracao');
+  if (!has('regras_comissao.visualizar')) redirect('/administracao/remuneracao');
 
   const { id } = await params;
   const planos = await apiFetch<PlanoCarreira[]>('/planos-carreira');

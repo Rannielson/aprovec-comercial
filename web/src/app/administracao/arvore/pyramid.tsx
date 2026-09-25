@@ -8,13 +8,12 @@ import type { TreeLayout } from '@/lib/tree-layout';
 import type { HinovaVoluntario } from '@/lib/types';
 import { ParticipanteSearch } from '../participante-search';
 import { NOVA_ARVORE } from './constants';
-import type { Gestor, Participante } from './estrutura';
+import type { Participante } from './estrutura';
 import { PersonDetail, type PersonDetailTarget } from './person-detail';
 
 const MIN_ZOOM = 0.4;
 const MAX_ZOOM = 1.4;
 const PANEL_WIDTH = 320;
-const GESTOR_GAP = 16;
 
 const initials = (name: string) =>
   name
@@ -29,12 +28,10 @@ const firstName = (name: string) => name.split(' ')[0].slice(0, 14);
 export function Pyramid({
   layout,
   people,
-  gestores,
   rates,
   roots,
   selectedRoot,
   showValues,
-  restrictedScope,
   canAddChild,
   initialTarget,
   voluntarios,
@@ -44,15 +41,12 @@ export function Pyramid({
 }: {
   layout: TreeLayout;
   people: Record<string, Participante>;
-  gestores: Gestor[];
-  rates: { own: number | null; global: number | null };
+  rates: { own: number | null };
   /** Every forest root, for the "Árvore em exibição" selector (independent of the current `root` filter). */
   roots: { id: string; name: string }[];
   selectedRoot: string;
   /** False when the viewer lacks `comissoes.visualizar` — amounts render as "—". */
   showValues: boolean;
-  /** True when the viewer's comissoes.visualizar scope is own/direct/subtree — an empty gestores[] isn't ground truth. */
-  restrictedScope: boolean;
   canAddChild: boolean;
   /** Which add panel is open on load (`?adicionar=`): a node id, NOVA_ARVORE, or null. */
   initialTarget: string | null;
@@ -73,7 +67,7 @@ export function Pyramid({
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
 
   const money = (value: number) => (showValues ? formatMoney(value) : '—');
-  const { nodeWidth, nodeHeight, manager } = layout;
+  const { nodeWidth, nodeHeight, brand } = layout;
   const center = layout.width / 2;
 
   // Center the forest horizontally on load and whenever a different tree is chosen (mockup: afterRender).
@@ -156,28 +150,13 @@ export function Pyramid({
   }
 
   // --- Connector lines -------------------------------------------------------------------------
-  const bandBottom = manager.y + manager.height;
+  const bandBottom = brand.y + brand.height;
   const junctionY = bandBottom + 31;
   const rootAnchors = layout.nodes.filter((n) => n.depth === 0).map((n) => ({ x: n.x + nodeWidth / 2, y: n.y }));
   if (layout.newRoot) rootAnchors.push({ x: layout.newRoot.x + nodeWidth / 2, y: layout.newRoot.y });
 
-  // One band slot per gestor (at least one, for the empty-state card), centered on the canvas.
-  const slots = Math.max(1, gestores.length);
-  const bandWidth = slots * manager.width + (slots - 1) * GESTOR_GAP;
-  const slotX = (i: number) => center - bandWidth / 2 + i * (manager.width + GESTOR_GAP);
-  const multiGestor = gestores.length > 1;
-
-  const globalPaths = rootAnchors.map((p) =>
-    // With a single band card this is the mockup's exact path; with several, the drop from each card
-    // meets at the junction line and the roots branch from there.
-    multiGestor ? `M${center} ${junctionY} H${p.x} V${p.y}` : `M${center} ${bandBottom} V${junctionY} H${p.x} V${p.y}`,
-  );
-  if (multiGestor) {
-    gestores.forEach((_, i) => {
-      const gx = slotX(i) + manager.width / 2;
-      globalPaths.push(`M${gx} ${bandBottom} V${junctionY} H${center}`);
-    });
-  }
+  // Every root's connector drops from the brand card, straight down to the junction line, then across.
+  const brandPaths = rootAnchors.map((p) => `M${center} ${bandBottom} V${junctionY} H${p.x} V${p.y}`);
 
   // --- Add panel -------------------------------------------------------------------------------
   const targetNode = target && target !== NOVA_ARVORE ? layout.nodes.find((n) => n.id === target) : undefined;
@@ -200,7 +179,7 @@ export function Pyramid({
       anchorY: targetNode.y + nodeHeight + 42,
     };
   } else if (target === NOVA_ARVORE) {
-    // Without a placeholder slot (a single tree is in view), open right under the gestão global band.
+    // Without a placeholder slot (a single tree is in view), open right under the brand band.
     panel = {
       key: NOVA_ARVORE,
       title: 'Nova árvore',
@@ -215,10 +194,7 @@ export function Pyramid({
     ? Math.max(8, Math.min(panel.anchorX * zoom - PANEL_WIDTH / 2, layout.width * zoom - PANEL_WIDTH - 8))
     : 0;
 
-  const newRootNote =
-    rates.own !== null && rates.global !== null
-      ? `${formatPercent(rates.own)} próprios · gestão global de ${formatPercent(rates.global)}`
-      : null;
+  const newRootNote = rates.own !== null ? `${formatPercent(rates.own)} sobre a própria carteira` : null;
 
   return (
     <>
@@ -282,8 +258,8 @@ export function Pyramid({
             style={{ width: layout.width, height: layout.height, transform: `scale(${zoom})` }}
           >
             <svg className="pyramid-lines" width={layout.width} height={layout.height} aria-hidden="true">
-              {globalPaths.map((d) => (
-                <path key={d} className="global-connector" d={d} />
+              {brandPaths.map((d) => (
+                <path key={d} className="brand-connector" d={d} />
               ))}
               {layout.edges.map(({ from, to }) => {
                 const x = from.x + nodeWidth / 2;
@@ -306,45 +282,9 @@ export function Pyramid({
               })}
             </svg>
 
-            {gestores.length === 0 ? (
-              <div className="pyramid-manager is-empty" style={{ left: slotX(0), top: manager.y }}>
-                <span className="pyramid-manager-avatar">
-                  <Icon name="shield" />
-                </span>
-                <div>
-                  <span>GESTÃO GLOBAL</span>
-                  <strong>{!showValues || restrictedScope ? 'Valores restritos' : 'Nenhum gestor nesta competência'}</strong>
-                  <small>
-                    {!showValues
-                      ? 'Seu perfil não inclui acesso às comissões'
-                      : restrictedScope
-                        ? 'Seu acesso não cobre a gestão global'
-                        : 'Nenhuma regra global apurada até agora'}
-                  </small>
-                </div>
-              </div>
-            ) : (
-              gestores.map((g, i) => (
-                <button
-                  key={g.id}
-                  type="button"
-                  className="pyramid-manager"
-                  style={{ left: slotX(i), top: manager.y }}
-                  aria-label={`Ver composição da comissão de ${g.name}`}
-                  onClick={() => setDetail({ kind: 'gestor', id: g.id })}
-                >
-                  <span className="pyramid-manager-avatar">
-                    <Icon name="shield" />
-                  </span>
-                  <div>
-                    <span>GESTÃO GLOBAL · {formatPercent(g.rate)}</span>
-                    <strong title={g.name}>{g.name}</strong>
-                    <small>Todas as árvores · {money(g.recebido)} recebidos</small>
-                  </div>
-                  <b>{money(g.comissao)}</b>
-                </button>
-              ))
-            )}
+            <div className="pyramid-brand" style={{ left: center - brand.width / 2, top: brand.y }}>
+              <img src="/logo-aprovec.webp" alt="APROVEC Brasil" width={132} height={35} />
+            </div>
 
             {layout.nodes.map((node) => {
               const p = people[node.id];
@@ -461,7 +401,6 @@ export function Pyramid({
         <PersonDetail
           target={detail}
           people={people}
-          gestores={gestores}
           competencia={competencia}
           showValues={showValues}
           canAddChild={canAddChild}

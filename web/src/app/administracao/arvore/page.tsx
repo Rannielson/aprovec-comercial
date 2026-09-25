@@ -40,9 +40,6 @@ export default async function ArvorePage({
   const showValues = has('comissoes.visualizar');
   // Existence alone isn't enough: an `own` scope returns only the viewer's own row (see buildEstrutura).
   const commissionScope = me.permissions.find((p) => p.key === 'comissoes.visualizar')?.scope ?? null;
-  // Only a tenant-scoped (or unscoped/null, meaning showValues is already false) viewer can trust an
-  // empty gestores[] as ground truth — an own/direct/subtree scope might just not cover the real gestor.
-  const restrictedScope = commissionScope !== null && commissionScope !== 'tenant';
   // POST /users with Hinova fields needs usuarios.convidar + integracoes.gerenciar (and the voluntário
   // search needs integracoes.gerenciar); setting a supervisor additionally needs estrutura.editar.
   const canAddRoot = has('usuarios.convidar') && has('integracoes.gerenciar');
@@ -54,7 +51,7 @@ export default async function ArvorePage({
     showValues ? apiFetch<Commissions>(`/commissions/${competencia}`) : Promise.resolve(null),
   ]);
 
-  const { sellers, gestores, rates } = buildEstrutura(users, commissions, { id: me.id, commissionScope });
+  const { sellers, rates } = buildEstrutura(users, commissions, { id: me.id, commissionScope });
   const people: Record<string, Participante> = Object.fromEntries(sellers.map((s) => [s.id, s]));
   const roots = sellers.filter((s) => s.parentId === null).map((s) => ({ id: s.id, name: s.name }));
   // Like the mockup, only a real tree top is a valid `root`; anything else falls back to all trees.
@@ -140,12 +137,10 @@ export default async function ArvorePage({
             <Pyramid
               layout={layout}
               people={people}
-              gestores={gestores}
-              rates={{ own: rates.own, global: rates.global }}
+              rates={{ own: rates.own }}
               roots={roots}
               selectedRoot={selectedRoot}
               showValues={showValues}
-              restrictedScope={restrictedScope}
               canAddChild={canAddChild}
               competencia={competencia}
               initialTarget={initialTarget}
@@ -167,7 +162,7 @@ export default async function ArvorePage({
                   </tr>
                 </thead>
                 <tbody>
-                  {gestores.length + sellers.length === 0 ? (
+                  {sellers.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="empty-state">
                         <Icon name="people" />
@@ -177,20 +172,6 @@ export default async function ArvorePage({
                     </tr>
                   ) : (
                     <>
-                      {gestores.map((g) => (
-                        <tr key={g.id}>
-                          <td>
-                            <PersonLabel name={g.name} detail="Gestão de toda a base" gestor />
-                          </td>
-                          <td>
-                            <span className="badge neutral">Gestão global</span>
-                          </td>
-                          <td>Toda a operação</td>
-                          <td className="number">{formatPercent(g.rate)}</td>
-                          <td className="number amount">{money(g.recebido)}</td>
-                          <td className="number amount earned">{money(g.comissao)}</td>
-                        </tr>
-                      ))}
                       {sellers.map((s) => (
                         <tr key={s.id}>
                           <td>
@@ -216,10 +197,6 @@ export default async function ArvorePage({
 
           <div className="pyramid-legend">
             <span>
-              <i className="legend-global" />
-              Gestor{rates.global !== null ? `: ${formatPercent(rates.global)}` : ''} sobre toda a base
-            </span>
-            <span>
               <i className="legend-direct" />
               Indicador{rates.referral !== null ? `: ${formatPercent(rates.referral)}` : ''} sobre o nível direto
             </span>
@@ -244,10 +221,10 @@ export default async function ArvorePage({
   );
 }
 
-function PersonLabel({ name, detail, gestor = false }: { name: string; detail: string; gestor?: boolean }) {
+function PersonLabel({ name, detail }: { name: string; detail: string }) {
   return (
     <div className="associate-button">
-      <span className={gestor ? 'row-avatar manager-avatar' : 'row-avatar network-avatar'}>
+      <span className="row-avatar network-avatar">
         {name
           .split(' ')
           .filter(Boolean)

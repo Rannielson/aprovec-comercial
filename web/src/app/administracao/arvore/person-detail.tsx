@@ -3,7 +3,7 @@
 import { Fragment, useEffect } from 'react';
 import { Icon } from '../../components/app-icon';
 import { formatCompetencia, formatMoney, formatPercent, ruleLabel } from '@/lib/format';
-import type { Gestor, Participante } from './estrutura';
+import type { Participante } from './estrutura';
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
@@ -15,12 +15,11 @@ const initials = (name: string) =>
     .map((part) => part[0])
     .join('');
 
-export type PersonDetailTarget = { kind: 'seller'; id: string } | { kind: 'gestor'; id: string };
+export type PersonDetailTarget = { kind: 'seller'; id: string };
 
 export function PersonDetail({
   target,
   people,
-  gestores,
   competencia,
   showValues,
   canAddChild,
@@ -29,7 +28,6 @@ export function PersonDetail({
 }: {
   target: PersonDetailTarget;
   people: Record<string, Participante>;
-  gestores: Gestor[];
   competencia: string;
   showValues: boolean;
   canAddChild: boolean;
@@ -44,41 +42,6 @@ export function PersonDetail({
 
   const money = (value: number) => (showValues ? formatMoney(value) : '—');
   const subtitle = `${formatCompetencia(competencia)}`;
-
-  if (target.kind === 'gestor') {
-    const g = gestores.find((candidate) => candidate.id === target.id);
-    if (!g) return null;
-    return (
-      <Overlay title="Composição da comissão" subtitle={`${g.name} · ${subtitle}`} onClose={onClose}>
-        <div className="drawer-person">
-          <span className="avatar manager-avatar">
-            <Icon name="shield" />
-          </span>
-          <div>
-            <h3>{g.name}</h3>
-            <p>Gestão de toda a base</p>
-          </div>
-        </div>
-        <dl className="detail-list">
-          <div>
-            <dt>Recebimentos de toda a base</dt>
-            <dd>{money(g.recebido)}</dd>
-          </div>
-          <div>
-            <dt>Taxa de gestão</dt>
-            <dd>{formatPercent(g.rate)}</dd>
-          </div>
-        </dl>
-        <section className="calculation">
-          <span className="eyebrow">TOTAL APURADO</span>
-          <div>
-            <strong>{money(g.comissao)}</strong>
-          </div>
-          <p>Recebimentos de toda a operação × taxa de gestão. Cada boleto pago entra uma única vez.</p>
-        </section>
-      </Overlay>
-    );
-  }
 
   const p = people[target.id];
   if (!p) return null;

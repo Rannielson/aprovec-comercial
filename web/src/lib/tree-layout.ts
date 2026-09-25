@@ -28,8 +28,8 @@ export type TreeLayout = {
   height: number;
   nodeWidth: number;
   nodeHeight: number;
-  /** The fixed "gestão global" band's slot above the forest (mockup/tree-layout.js's `manager`). */
-  manager: { x: number; y: number; width: number; height: number };
+  /** The fixed brand card's slot above the forest — every root's connector line meets here. */
+  brand: { x: number; y: number; width: number; height: number };
 };
 
 const NODE_WIDTH = 226;
@@ -38,12 +38,12 @@ const ROW_GAP = 240;
 const PADDING = 40;
 const SIBLING_GAP = 34;
 const ROOT_GAP = 88;
-// The first row starts below the gestão global band (y 26..136) and the dashed connectors that
+// The first row starts below the brand band (y 26..136) and the dashed connectors that
 // drop from it (136 → 167 → row top), exactly as mockup/tree-layout.js's hard-coded `y:202`.
 const TOP = 202;
-const MANAGER_WIDTH = 350;
-const MANAGER_HEIGHT = 110;
-const MANAGER_Y = 26;
+const BRAND_WIDTH = 350;
+const BRAND_HEIGHT = 110;
+const BRAND_Y = 26;
 
 export function treeLayout(people: TreePerson[], options: TreeLayoutOptions = {}): TreeLayout {
   const collapsedSet = new Set(options.collapsed ?? []);
@@ -172,6 +172,6 @@ export function treeLayout(people: TreePerson[], options: TreeLayoutOptions = {}
     height,
     nodeWidth: NODE_WIDTH,
     nodeHeight: NODE_HEIGHT,
-    manager: { x: width / 2 - MANAGER_WIDTH / 2, y: MANAGER_Y, width: MANAGER_WIDTH, height: MANAGER_HEIGHT },
+    brand: { x: width / 2 - BRAND_WIDTH / 2, y: BRAND_Y, width: BRAND_WIDTH, height: BRAND_HEIGHT },
   };
 }

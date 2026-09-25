@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { currentHost } from '@/lib/api';
+import { AuthBrandPanel } from '../components/auth-brand-panel';
 import { ResetForm } from './reset-form';
 
 export default async function ResetPasswordPage() {
@@ -10,13 +11,16 @@ export default async function ResetPasswordPage() {
   if (host.kind !== 'tenant') notFound();
 
   return (
-    <main className="auth">
-      <section className="card">
-        <p className="eyebrow">Acesso</p>
-        <h1>Redefinir senha</h1>
-        <p className="muted">Informe o e-mail usado no acesso.</p>
-        <ResetForm />
+    <main className="login-shell">
+      <section className="login-panel">
+        <div className="login-card">
+          <p className="eyebrow">Acesso</p>
+          <h1>Redefinir senha</h1>
+          <p className="muted">Informe o e-mail usado no acesso.</p>
+          <ResetForm />
+        </div>
       </section>
+      <AuthBrandPanel />
     </main>
   );
 }

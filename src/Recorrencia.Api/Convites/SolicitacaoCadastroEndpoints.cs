@@ -69,8 +69,12 @@ public static class SolicitacaoCadastroEndpoints
 
         try
         {
+            // CPF só com dígitos: "111.222.333-44" e "11122233344" são o mesmo CPF, e é por dígitos
+            // que a Hinova compara (BuscarVoluntarioAsync no AprovarAsync lê este mesmo valor salvo).
+            // Um CPF vazio (ou sem nenhum dígito) vira "" e cai no request.invalid abaixo, junto com
+            // os outros campos obrigatórios; só um CPF preenchido com tamanho errado é cpf_invalido.
+            var cpf = new string((body.Cpf ?? "").Where(char.IsDigit).ToArray());
             var nome = (body.Nome ?? "").Trim();
-            var cpf = (body.Cpf ?? "").Trim();
             var celular = (body.Celular ?? "").Trim();
             var email = (body.Email ?? "").Trim();
             var cep = (body.Cep ?? "").Trim();
@@ -83,6 +87,8 @@ public static class SolicitacaoCadastroEndpoints
             if (nome.Length == 0 || cpf.Length == 0 || celular.Length == 0 || email.Length == 0 || cep.Length == 0
                 || logradouro.Length == 0 || numero.Length == 0 || bairro.Length == 0 || cidade.Length == 0 || estado.Length == 0)
                 throw new ApiProblem(StatusCodes.Status400BadRequest, "request.invalid");
+            if (cpf.Length != 11)
+                throw new ApiProblem(StatusCodes.Status400BadRequest, "solicitacao.cpf_invalido");
 
             // app.resolve_convite_link (Task 4, Step 0b) -- não um join direto com `users`: uma
             // sessão anônima não vê nenhuma linha de `users` via RLS, então um join aqui devolveria

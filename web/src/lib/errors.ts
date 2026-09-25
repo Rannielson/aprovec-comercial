@@ -31,6 +31,7 @@ const messages: Record<string, string> = {
   'solicitacao.ja_resolvida': 'Essa solicitação já foi resolvida.',
   'solicitacao.cpf_ja_cadastrado': 'Esse CPF já está cadastrado na Hinova. Resolva manualmente antes de aprovar.',
   'solicitacao.indicador_sem_hinova': 'O indicador não está mais vinculado a um código de voluntário na Hinova.',
+  'solicitacao.cpf_invalido': 'Informe um CPF válido (11 dígitos).',
 };
 
 export function messageFor(code: string): string {

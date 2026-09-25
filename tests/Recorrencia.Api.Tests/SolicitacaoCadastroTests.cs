@@ -72,6 +72,41 @@ public class SolicitacaoCadastroTests(ApiFixture api)
         Assert.Equal("request.invalid", await ApiClient.CodeAsync(response));
     }
 
+    [Fact]
+    public async Task Submitting_a_formatted_cpf_stores_only_its_digits()
+    {
+        var s = await api.SeedAsync();
+        var token = await LinkTokenAsync(s, s.Joao, "315");
+        var anonimo = api.Client(s.Slug);
+
+        var response = await anonimo.PostAsync($"/convite-links/{token}/solicitacoes", new
+        {
+            nome = "Fulano de Tal", cpf = "111.222.333-44", celular = "11999998888", email = "fulano@teste.local",
+            cep = "30000-000", logradouro = "Rua X", numero = "10", bairro = "Bairro", cidade = "Cidade", estado = "UF",
+        });
+        await ApiClient.ExpectAsync(response, HttpStatusCode.Created);
+        var created = await response.Content.ReadFromJsonAsync<IdDto>(ApiClient.Json);
+
+        var cpf = await api.SqlScalarAsync<string>("select cpf from solicitacoes_cadastro where id = @id", new { id = created!.Id });
+        Assert.Equal("11122233344", cpf);
+    }
+
+    [Fact]
+    public async Task Submitting_a_cpf_without_11_digits_returns_400()
+    {
+        var s = await api.SeedAsync();
+        var token = await LinkTokenAsync(s, s.Joao, "316");
+        var anonimo = api.Client(s.Slug);
+
+        var response = await anonimo.PostAsync($"/convite-links/{token}/solicitacoes", new
+        {
+            nome = "Fulano de Tal", cpf = "123", celular = "11999998888", email = "fulano@teste.local",
+            cep = "30000-000", logradouro = "Rua X", numero = "10", bairro = "Bairro", cidade = "Cidade", estado = "UF",
+        });
+        await ApiClient.ExpectAsync(response, HttpStatusCode.BadRequest);
+        Assert.Equal("solicitacao.cpf_invalido", await ApiClient.CodeAsync(response));
+    }
+
     public sealed record SolicitacaoDto(Guid Id, string Nome, string Cpf, string Celular, string Email, string Cep,
         string Logradouro, string Numero, string? Complemento, string Bairro, string Cidade, string Estado,
         Guid IndicadorUserId, string IndicadorNome, DateTimeOffset CriadoEm);

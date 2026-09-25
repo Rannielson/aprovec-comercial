@@ -12,6 +12,7 @@ public class UserTests(ApiFixture api)
     public sealed record PermissionDto(string Key, string? Scope);
     public sealed record MeDto(List<PermissionDto> Permissions);
     public sealed record CreatedDto(Guid Id);
+    public sealed record MapeamentoDto(Guid UserId, string UserName, string CodigoVoluntario, string NomeHinova, string CpfHinova, DateTimeOffset MappedAt);
 
     private async Task<ApiClient> LoginAsync(SeededTenant s, string login)
     {
@@ -359,6 +360,115 @@ public class UserTests(ApiFixture api)
             new { name = "Nova", email = $"nova2@{s.Slug}.local", supervisorId = s.Joao });
 
         await ApiClient.ExpectAsync(response, HttpStatusCode.Created);
+    }
+
+    [Fact]
+    public async Task Inviting_with_hinova_fields_creates_the_mapping_in_the_same_call()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        var consultor = await RoleIdAsync(s.TenantId, "consultor");
+        var email = $"nova-hinova@{s.Slug}.local";
+
+        var created = await admin.PostAsync("/users", new
+        {
+            name = "Nova Vinculada",
+            email,
+            roleIds = new[] { consultor },
+            codigoVoluntario = "555",
+            nomeHinova = "Nova Vinculada Hinova",
+            cpfHinova = "11122233344",
+        });
+        await ApiClient.ExpectAsync(created, HttpStatusCode.Created);
+        var id = (await created.Content.ReadFromJsonAsync<CreatedDto>(ApiClient.Json))!.Id;
+
+        var mapeamentos = await admin.GetJsonAsync<List<MapeamentoDto>>("/integracoes/hinova/mapeamentos");
+        var mapping = Assert.Single(mapeamentos, m => m.UserId == id);
+        Assert.Equal("555", mapping.CodigoVoluntario);
+        Assert.Equal("Nova Vinculada Hinova", mapping.NomeHinova);
+    }
+
+    [Fact]
+    public async Task Inviting_with_a_codigo_voluntario_already_linked_creates_neither_user_nor_mapping()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        var consultor = await RoleIdAsync(s.TenantId, "consultor");
+
+        await ApiClient.ExpectAsync(await admin.PostAsync("/users", new
+        {
+            name = "Primeiro",
+            email = $"primeiro@{s.Slug}.local",
+            roleIds = new[] { consultor },
+            codigoVoluntario = "777",
+            nomeHinova = "Primeiro Hinova",
+            cpfHinova = "11111111111",
+        }), HttpStatusCode.Created);
+
+        var duplicateEmail = $"segundo@{s.Slug}.local";
+        var response = await admin.PostAsync("/users", new
+        {
+            name = "Segundo",
+            email = duplicateEmail,
+            roleIds = new[] { consultor },
+            codigoVoluntario = "777",
+            nomeHinova = "Segundo Hinova",
+            cpfHinova = "22222222222",
+        });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("hinova.vinculo_duplicado", await ApiClient.CodeAsync(response));
+
+        var users = await admin.GetJsonAsync<List<UserDto>>("/users");
+        Assert.DoesNotContain(users, u => u.Email == duplicateEmail);
+    }
+
+    [Fact]
+    public async Task Inviting_with_hinova_fields_without_the_permission_is_forbidden()
+    {
+        var s = await api.SeedAsync();
+        var roleId = Guid.NewGuid();
+        await api.SqlAsync(
+            """
+            delete from user_roles where tenant_id = @tenant and user_id = @pedro;
+            insert into roles (id, tenant_id, name) values (@roleId, @tenant, 'Convida sem Hinova');
+            insert into role_permissions (tenant_id, role_id, permission_key, scope) values (@tenant, @roleId, 'usuarios.convidar', null);
+            insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @pedro, @roleId);
+            """,
+            new { roleId, tenant = s.TenantId, pedro = s.Pedro });
+        var pedro = await LoginAsync(s, "pedro");
+
+        var response = await pedro.PostAsync("/users", new
+        {
+            name = "Sem Permissao",
+            email = $"sem-permissao@{s.Slug}.local",
+            codigoVoluntario = "888",
+            nomeHinova = "Sem Permissao Hinova",
+            cpfHinova = "33333333333",
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("auth.forbidden", await ApiClient.CodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Inviting_without_hinova_fields_is_unchanged()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        var consultor = await RoleIdAsync(s.TenantId, "consultor");
+
+        var response = await admin.PostAsync("/users", new
+        {
+            name = "Sem Hinova",
+            email = $"sem-hinova@{s.Slug}.local",
+            roleIds = new[] { consultor },
+        });
+
+        await ApiClient.ExpectAsync(response, HttpStatusCode.Created);
+        var id = (await response.Content.ReadFromJsonAsync<CreatedDto>(ApiClient.Json))!.Id;
+        var mapeamentos = await admin.GetJsonAsync<List<MapeamentoDto>>("/integracoes/hinova/mapeamentos");
+        Assert.DoesNotContain(mapeamentos, m => m.UserId == id);
     }
 
     [Fact]

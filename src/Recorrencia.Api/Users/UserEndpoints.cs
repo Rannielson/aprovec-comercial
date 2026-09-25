@@ -12,7 +12,8 @@ namespace Recorrencia.Api.Users;
 
 public static class UserEndpoints
 {
-    public sealed record InviteUserRequest(string? Name, string? Email, Guid? SupervisorId, Guid[]? RoleIds);
+    public sealed record InviteUserRequest(string? Name, string? Email, Guid? SupervisorId, Guid[]? RoleIds,
+        string? CodigoVoluntario, string? NomeHinova, string? CpfHinova);
     public sealed record SupervisorRequest(Guid? SupervisorId);
     public sealed record UserRolesRequest(Guid[]? RoleIds);
 
@@ -66,6 +67,11 @@ public static class UserEndpoints
         if (!MailAddress.TryCreate(address, out var parsedAddress) || parsedAddress.Address != address)
             throw new ApiProblem(StatusCodes.Status400BadRequest, "users.invalid_email");
 
+        var codigoVoluntario = (body.CodigoVoluntario ?? "").Trim();
+        var nomeHinova = (body.NomeHinova ?? "").Trim();
+        var cpfHinova = (body.CpfHinova ?? "").Trim();
+        var linkingHinova = codigoVoluntario.Length > 0;
+
         var roleIds = body.RoleIds ?? [];
         var mine = await permissions.GetAsync(ct);
         if (roleIds.Length > 0 && !mine.Has("usuarios.gerenciar_perfis"))
@@ -74,6 +80,10 @@ public static class UserEndpoints
         // supervisor is as sensitive as granting a role -- gated the same way, behind
         // estrutura.editar, rather than left open to anyone who can merely invite.
         if (body.SupervisorId is not null && !mine.Has("estrutura.editar"))
+            throw new ApiProblem(StatusCodes.Status403Forbidden, "auth.forbidden");
+        // Creating a Hinova voluntário mapping is exactly as sensitive as the Fase 3
+        // credentials/mapping screen that owns hinova_voluntario_mapping -- same permission.
+        if (linkingHinova && !mine.Has("integracoes.gerenciar"))
             throw new ApiProblem(StatusCodes.Status403Forbidden, "auth.forbidden");
 
         var id = Guid.CreateVersion7();
@@ -98,6 +108,24 @@ public static class UserEndpoints
 
             foreach (var roleId in roleIds.Distinct())
                 await tx.ExecuteAsync("insert into user_roles (tenant_id, user_id, role_id) values (@tenant, @id, @roleId)", new { tenant, id, roleId });
+
+            if (linkingHinova)
+            {
+                try
+                {
+                    await tx.ExecuteAsync(
+                        """
+                        insert into hinova_voluntario_mapping (tenant_id, user_id, codigo_voluntario, nome_hinova, cpf_hinova, mapped_by)
+                        values (@tenant, @id, @codigoVoluntario, @nomeHinova, @cpfHinova, @actor)
+                        """,
+                        new { tenant, id, codigoVoluntario, nomeHinova, cpfHinova, actor });
+                }
+                catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
+                {
+                    throw new ApiProblem(StatusCodes.Status409Conflict, "hinova.vinculo_duplicado");
+                }
+                await WriteAsync(tx, tenant, actor, "hinova.vincular", "hinova_voluntario_mapping", id, null, new { codigoVoluntario, nomeHinova, cpfHinova });
+            }
 
             await tx.ExecuteAsync("select app.create_invite(@id, @hash, 'convite', @ttl)",
                 new { id, hash = Tokens.Hash(token), ttl = options.Value.InviteTtlSeconds });

@@ -45,19 +45,22 @@ export function ParticipanteEditForm({
         </>
       )}
       {planos.length > 0 && (
-        <label>
-          Plano de carreira
-          <select name="planoCarreiraId" defaultValue={user.planoCarreiraId ?? ''}>
-            <option value="">Sem plano de carreira</option>
-            {planos
-              .filter((p) => p.status === 'ativo' || p.id === user.planoCarreiraId)
-              .map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-          </select>
-        </label>
+        <>
+          <input type="hidden" name="hasPlanos" value="1" />
+          <label>
+            Plano de carreira
+            <select name="planoCarreiraId" defaultValue={user.planoCarreiraId ?? ''}>
+              <option value="">Sem plano de carreira</option>
+              {planos
+                .filter((p) => p.status === 'ativo' || p.id === user.planoCarreiraId)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        </>
       )}
       <label>
         Nova senha

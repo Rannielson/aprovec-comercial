@@ -69,11 +69,14 @@ export async function editarParticipante(_: FormState, formData: FormData): Prom
     if (password.length > 0) {
       await apiFetch(`/users/${id}/password`, { method: 'PUT', body: { password } });
     }
-    const planoCarreiraIdRaw = String(formData.get('planoCarreiraId') ?? '');
-    await apiFetch(`/users/${id}/plano-carreira`, {
-      method: 'PUT',
-      body: { planoCarreiraId: planoCarreiraIdRaw || null },
-    });
+    const hasPlanos = formData.get('hasPlanos') === '1';
+    if (hasPlanos) {
+      const planoCarreiraIdRaw = String(formData.get('planoCarreiraId') ?? '');
+      await apiFetch(`/users/${id}/plano-carreira`, {
+        method: 'PUT',
+        body: { planoCarreiraId: planoCarreiraIdRaw || null },
+      });
+    }
   } catch (error) {
     if (error instanceof ApiError) return { error: messageFor(error.code) };
     throw error;

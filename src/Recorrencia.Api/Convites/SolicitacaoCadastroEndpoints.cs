@@ -1,6 +1,12 @@
+using Microsoft.Extensions.Options;
+using Recorrencia.Api.Authorization;
+using Recorrencia.Api.Email;
 using Recorrencia.Api.Infrastructure;
+using Recorrencia.Api.Integracoes;
 using Recorrencia.Api.Security;
 using Recorrencia.Api.Tenancy;
+using Recorrencia.Api.Users;
+using static Recorrencia.Api.Audit.Audit;
 
 namespace Recorrencia.Api.Convites;
 
@@ -9,15 +15,46 @@ public static class SolicitacaoCadastroEndpoints
     public sealed record SolicitarRequest(string? Nome, string? Cpf, string? Celular, string? Email,
         string? Cep, string? Logradouro, string? Numero, string? Complemento, string? Bairro, string? Cidade, string? Estado);
 
+    public sealed record SolicitacaoResponse(Guid Id, string Nome, string Cpf, string Celular, string Email, string Cep,
+        string Logradouro, string Numero, string? Complemento, string Bairro, string Cidade, string Estado,
+        Guid IndicadorUserId, string IndicadorNome, DateTimeOffset CriadoEm);
+
     private sealed class IndicadorRow
     {
         public Guid UserId { get; set; }
         public string Nome { get; set; } = "";
     }
 
+    private sealed class SolicitacaoRow
+    {
+        public Guid Id { get; set; }
+        public Guid TenantId { get; set; }
+        public Guid IndicadorUserId { get; set; }
+        // Populated only by ListarAsync's join (it aliases users.name as indicador_nome); the
+        // plain "select * from solicitacoes_cadastro" that AprovarAsync/RejeitarAsync run has no
+        // such column, so it stays "" there -- harmless, since neither of those handlers reads it.
+        public string IndicadorNome { get; set; } = "";
+        public string Nome { get; set; } = "";
+        public string Cpf { get; set; } = "";
+        public string Celular { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Cep { get; set; } = "";
+        public string Logradouro { get; set; } = "";
+        public string Numero { get; set; } = "";
+        public string? Complemento { get; set; }
+        public string Bairro { get; set; } = "";
+        public string Cidade { get; set; } = "";
+        public string Estado { get; set; } = "";
+        public string Status { get; set; } = "";
+        public DateTimeOffset CriadoEm { get; set; }
+    }
+
     public static void MapSolicitacaoCadastroEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/convite-links/{token}/solicitacoes", SolicitarAsync);
+        app.MapGet("/solicitacoes-cadastro", ListarAsync).RequirePermission("usuarios.convidar").RequirePermission("integracoes.gerenciar");
+        app.MapPost("/solicitacoes-cadastro/{id:guid}/aprovar", AprovarAsync).RequirePermission("usuarios.convidar").RequirePermission("integracoes.gerenciar");
+        app.MapPost("/solicitacoes-cadastro/{id:guid}/rejeitar", RejeitarAsync).RequirePermission("usuarios.convidar").RequirePermission("integracoes.gerenciar");
     }
 
     private static async Task<IResult> SolicitarAsync(string token, SolicitarRequest body, RequestContext request, Database db,
@@ -78,5 +115,112 @@ public static class SolicitacaoCadastroEndpoints
             throttle.Complete(keys, true);
             throw;
         }
+    }
+
+    private static async Task<IResult> ListarAsync(RequestContext request, Database db, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var user = request.RequireUser();
+        var rows = await db.InTenantAsync(tenant, user, tx => tx.QueryAsync<SolicitacaoRow>(
+            """
+            select s.id, s.tenant_id, s.indicador_user_id, u.name as indicador_nome, s.nome, s.cpf, s.celular, s.email,
+                   s.cep, s.logradouro, s.numero, s.complemento, s.bairro, s.cidade, s.estado, s.status, s.criado_em
+              from solicitacoes_cadastro s join users u on u.id = s.indicador_user_id
+             where s.status = 'pendente'
+             order by s.criado_em
+            """), ct);
+        return Results.Ok(rows.Select(r => new SolicitacaoResponse(r.Id, r.Nome, r.Cpf, r.Celular, r.Email, r.Cep,
+            r.Logradouro, r.Numero, r.Complemento, r.Bairro, r.Cidade, r.Estado, r.IndicadorUserId, r.IndicadorNome, r.CriadoEm)).ToList());
+    }
+
+    private static async Task<IResult> AprovarAsync(Guid id, RequestContext request, Database db, CurrentPermissions permissions,
+        IHinovaClient hinova, AesGcmCipher cipher, IEmailSender email, LinkBuilder links, IOptions<AuthOptions> options, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        var mine = await permissions.GetAsync(ct);
+
+        // A transação fica aberta durante as chamadas HTTP à Hinova (2-3 round-trips) -- aceitável
+        // aqui: é uma ação de admin, de baixo volume (poucas aprovações por dia), travando uma
+        // única linha de solicitacoes_cadastro, não uma tabela quente do sistema.
+        var (newUserId, enderecoEmail, inviteToken) = await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            var solicitacao = await tx.QuerySingleOrDefaultAsync<SolicitacaoRow>(
+                "select * from solicitacoes_cadastro where tenant_id = @tenant and id = @id for update",
+                new { tenant, id }) ?? throw new ApiProblem(StatusCodes.Status404NotFound, "solicitacao.not_found");
+            if (solicitacao.Status != "pendente")
+                throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.ja_resolvida");
+
+            var indicadorCodigo = await tx.QuerySingleOrDefaultAsync<string>(
+                "select codigo_voluntario from hinova_voluntario_mapping where tenant_id = @tenant and user_id = @indicadorId",
+                new { tenant, indicadorId = solicitacao.IndicadorUserId })
+                ?? throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.indicador_sem_hinova");
+            var indicadorNome = await tx.QuerySingleAsync<string>(
+                "select name from users where id = @id", new { id = solicitacao.IndicadorUserId });
+
+            var tokenUsuario = await HinovaAuth.GetTokenUsuarioAsync(db, tenant, actor, cipher, hinova, ct);
+
+            var existente = await hinova.BuscarVoluntarioAsync(tokenUsuario, solicitacao.Cpf, ct);
+            if (existente is not null)
+                throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.cpf_ja_cadastrado");
+
+            var indicador = await hinova.BuscarVoluntarioAsync(tokenUsuario, indicadorCodigo, ct)
+                ?? throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.indicador_sem_hinova");
+
+            var obs = $"Cadastrado via indicação de {indicadorNome} em {DateOnly.FromDateTime(DateTime.UtcNow):dd/MM/yyyy}.";
+            var codigoVoluntario = await hinova.CadastrarVoluntarioAsync(tokenUsuario, new CadastrarVoluntarioRequest(
+                solicitacao.Nome, solicitacao.Cpf, solicitacao.Celular, solicitacao.Email,
+                solicitacao.Logradouro, solicitacao.Numero, solicitacao.Complemento, solicitacao.Bairro,
+                solicitacao.Cidade, solicitacao.Estado, solicitacao.Cep, indicador.CooperativaCodigos, indicadorCodigo, obs), ct);
+
+            var roleIds = (await tx.QueryAsync<Guid>(
+                "select id from roles where tenant_id = @tenant and source_template_key = 'consultor'", new { tenant })).ToArray();
+
+            var userId = Guid.CreateVersion7();
+            await RoleGuards.EnsureCanGrantRolesAsync(tx, mine, roleIds);
+            await UserEndpoints.CreateUserWithRolesAsync(tx, tenant, userId, solicitacao.Nome, solicitacao.Email, solicitacao.IndicadorUserId, roleIds);
+            await UserEndpoints.LinkHinovaAsync(tx, tenant, userId, actor, codigoVoluntario, solicitacao.Nome, solicitacao.Cpf);
+            var inviteToken = await UserEndpoints.CreateInviteTokenAsync(tx, tenant, actor, userId, solicitacao.Nome, solicitacao.Email,
+                solicitacao.IndicadorUserId, roleIds, options.Value.InviteTtlSeconds);
+
+            await tx.ExecuteAsync(
+                "update solicitacoes_cadastro set status = 'aprovado', resolvido_em = now(), resolvido_por = @actor, user_id_resultante = @userId where id = @id",
+                new { actor, userId, id });
+            await WriteAsync(tx, tenant, actor, "solicitacao.aprovar", "solicitacoes_cadastro", id, null, new { userId, codigoVoluntario });
+
+            return (userId, solicitacao.Email, inviteToken);
+        }, ct);
+
+        await email.SendAsync(enderecoEmail, "Convite de acesso",
+            EmailTemplates.AccessLink(
+                "Convite de acesso",
+                $"Você foi convidado para acessar a plataforma de {request.TenantName}.",
+                "Definir minha senha",
+                links.SetPassword(request.TenantSlug!, inviteToken),
+                "O link vale por 72 horas.",
+                links.Logo(request.TenantSlug!)), ct);
+
+        return Results.Ok(new { userId = newUserId });
+    }
+
+    private static async Task<IResult> RejeitarAsync(Guid id, RequestContext request, Database db, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            var status = await tx.QuerySingleOrDefaultAsync<string>(
+                "select status from solicitacoes_cadastro where tenant_id = @tenant and id = @id for update", new { tenant, id })
+                ?? throw new ApiProblem(StatusCodes.Status404NotFound, "solicitacao.not_found");
+            if (status != "pendente")
+                throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.ja_resolvida");
+
+            await tx.ExecuteAsync(
+                "update solicitacoes_cadastro set status = 'rejeitado', resolvido_em = now(), resolvido_por = @actor where id = @id",
+                new { actor, id });
+            await WriteAsync(tx, tenant, actor, "solicitacao.rejeitar", "solicitacoes_cadastro", id, null, null);
+            return 0;
+        }, ct);
+        return Results.NoContent();
     }
 }

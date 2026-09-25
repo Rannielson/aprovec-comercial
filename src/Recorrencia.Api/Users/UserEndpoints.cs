@@ -246,7 +246,7 @@ public static class UserEndpoints
 
         await db.InTenantAsync(tenant, actor, async tx =>
         {
-            var current = await tx.QuerySingleOrDefaultAsync<UserRow>("select * from users where id = @id for update", new { id })
+            var current = await tx.QuerySingleOrDefaultAsync<UserRow>("select id, name, email from users where id = @id for update", new { id })
                 ?? throw new ApiProblem(StatusCodes.Status404NotFound, "users.not_found");
             try
             {

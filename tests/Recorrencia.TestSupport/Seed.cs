@@ -18,14 +18,10 @@ public sealed class Seed(PostgresFixture db)
         return (await conn.ExecuteScalarAsync<T>(sql, param))!;
     }
 
-    public async Task<Guid> TenantAsync(string? slug = null)
-    {
-        var tenantId = await ScalarAsync<Guid>(
+    public Task<Guid> TenantAsync(string? slug = null) =>
+        ScalarAsync<Guid>(
             "insert into tenants (slug, name) values (@slug, 'Empresa de teste') returning id",
             new { slug = slug ?? UniqueSlug() });
-        await InitializeRolesAsync(tenantId);
-        return tenantId;
-    }
 
     public Task<Guid> UserAsync(Guid tenantId, string name, Guid? supervisorId = null, string status = "ativo", string? email = null) =>
         ScalarAsync<Guid>(
@@ -75,28 +71,6 @@ public sealed class Seed(PostgresFixture db)
             """,
             new { slug = slug ?? UniqueSlug(), adminEmail = $"admin-{Guid.NewGuid():N}@teste.local", planTemplate, effectiveFrom },
             t));
-
-    public async Task InitializeRolesAsync(Guid tenantId)
-    {
-        await EnableModulesAsync(tenantId);
-        await ExecAsync(
-            """
-            insert into roles (tenant_id, name, source_template_key)
-            select @tenantId, name, key from role_templates
-            on conflict (tenant_id, name) do nothing
-            """,
-            new { tenantId });
-        await ExecAsync(
-            """
-            insert into role_permissions (tenant_id, role_id, permission_key, scope)
-            select @tenantId, r.id, tp.permission_key, tp.scope
-              from roles r
-              join role_template_permissions tp on tp.template_key = r.source_template_key
-             where r.tenant_id = @tenantId
-            on conflict do nothing
-            """,
-            new { tenantId });
-    }
 
     public Task AssignTemplateRoleAsync(Guid tenantId, Guid userId, string templateKey) =>
         ExecAsync(

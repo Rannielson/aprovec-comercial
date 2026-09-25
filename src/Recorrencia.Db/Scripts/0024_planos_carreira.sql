@@ -36,9 +36,16 @@ create table planos_carreira_regras_recorrencia (
   nivel int check (nivel is null or nivel > 0),
   taxa numeric(7,4) not null check (taxa > 0 and taxa <= 1),
   foreign key (tenant_id, plano_carreira_id) references planos_carreira (tenant_id, id) on delete cascade,
-  unique (plano_carreira_id, tipo, nivel),
   check ((tipo = 'upline') = (nivel is not null))
 );
+
+-- unique (plano_carreira_id, tipo, nivel) sozinho não funciona: Postgres trata cada NULL
+-- como distinto pra fins de unicidade, e nivel é sempre null pra 'propria' -- duas índices
+-- parciais, uma pra cada caso, fecham a lacuna corretamente.
+create unique index planos_carreira_regras_recorrencia_propria_idx
+  on planos_carreira_regras_recorrencia (plano_carreira_id) where tipo = 'propria';
+create unique index planos_carreira_regras_recorrencia_upline_idx
+  on planos_carreira_regras_recorrencia (plano_carreira_id, nivel) where tipo = 'upline';
 
 alter table users add column plano_carreira_id uuid;
 alter table users add foreign key (tenant_id, plano_carreira_id) references planos_carreira (tenant_id, id);

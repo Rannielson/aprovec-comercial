@@ -21,13 +21,6 @@ public static class HinovaEndpoints
         public string UpdatedByName { get; set; } = "";
     }
 
-    private sealed class CredenciaisRow
-    {
-        public byte[] UsuarioEnc { get; set; } = [];
-        public byte[] SenhaEnc { get; set; } = [];
-        public byte[] TokenSgaEnc { get; set; } = [];
-    }
-
     private sealed class MappingRow
     {
         public string CodigoVoluntario { get; set; } = "";
@@ -118,25 +111,7 @@ public static class HinovaEndpoints
         var tenant = request.RequireTenant();
         var user = request.RequireUser();
 
-        var credenciais = await db.InTenantAsync(tenant, user, tx => tx.QuerySingleOrDefaultAsync<CredenciaisRow>(
-            "select usuario_enc, senha_enc, token_sga_enc from hinova_credenciais where tenant_id = @tenant",
-            new { tenant }), ct);
-        if (credenciais is null)
-            throw new ApiProblem(StatusCodes.Status400BadRequest, "hinova.nao_configurado");
-
-        var usuario = cipher.Decrypt(credenciais.UsuarioEnc);
-        var senha = cipher.Decrypt(credenciais.SenhaEnc);
-        var tokenSga = cipher.Decrypt(credenciais.TokenSgaEnc);
-
-        string tokenUsuario;
-        try
-        {
-            tokenUsuario = await hinova.AutenticarAsync(usuario, senha, tokenSga, ct);
-        }
-        catch (HinovaAuthException)
-        {
-            throw new ApiProblem(StatusCodes.Status400BadRequest, "hinova.credenciais_invalidas");
-        }
+        var tokenUsuario = await HinovaAuth.GetTokenUsuarioAsync(db, tenant, user, cipher, hinova, ct);
         var voluntarios = await hinova.ListarVoluntariosAsync(tokenUsuario, ct);
 
         var filtered = string.IsNullOrWhiteSpace(query)

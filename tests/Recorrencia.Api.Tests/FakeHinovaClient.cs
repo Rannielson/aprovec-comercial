@@ -11,9 +11,26 @@ public sealed class FakeHinovaClient : IHinovaClient
         new HinovaVoluntario("102", "Bruno Costa Lima", "22233344455", "(31)99222-3344", ["Cooperativa Central"]),
     ];
 
+    /// <summary>Set up before a test to make BuscarVoluntarioAsync report an existing match for that
+    /// key (CPF or código) -- simulates the CPF-already-in-Hinova collision. Leave empty for the
+    /// happy path (not found = null).</summary>
+    public Dictionary<string, HinovaVoluntarioDetalhe> BuscarPorChave { get; } = new();
+
+    public string ProximoCodigoCadastrado { get; set; } = "999";
+    public CadastrarVoluntarioRequest? UltimoCadastro { get; private set; }
+
     public Task<string> AutenticarAsync(string usuario, string senha, string tokenSga, CancellationToken ct) =>
         RejectAuth ? throw new HinovaAuthException() : Task.FromResult("token-usuario-fake");
 
     public Task<IReadOnlyList<HinovaVoluntario>> ListarVoluntariosAsync(string tokenUsuario, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<HinovaVoluntario>>(Voluntarios);
+
+    public Task<HinovaVoluntarioDetalhe?> BuscarVoluntarioAsync(string tokenUsuario, string cpfOuCodigo, CancellationToken ct) =>
+        Task.FromResult(BuscarPorChave.GetValueOrDefault(cpfOuCodigo));
+
+    public Task<string> CadastrarVoluntarioAsync(string tokenUsuario, CadastrarVoluntarioRequest request, CancellationToken ct)
+    {
+        UltimoCadastro = request;
+        return Task.FromResult(ProximoCodigoCadastrado);
+    }
 }

@@ -21,4 +21,17 @@ public sealed class DevFakeHinovaClient : IHinovaClient
 
     public Task<IReadOnlyList<HinovaVoluntario>> ListarVoluntariosAsync(string tokenUsuario, CancellationToken ct) =>
         Task.FromResult(Voluntarios);
+
+    private static int _proximoCodigo = 900;
+
+    public Task<HinovaVoluntarioDetalhe?> BuscarVoluntarioAsync(string tokenUsuario, string cpfOuCodigo, CancellationToken ct)
+    {
+        var match = Voluntarios.FirstOrDefault(v => v.Codigo == cpfOuCodigo || v.Cpf == cpfOuCodigo);
+        // Cooperativa fixa "1" para todo mundo -- suficiente para o fluxo de dev/E2E, que só
+        // precisa de ALGUM código de cooperativa para completar o Cadastrar, não de um valor real.
+        return Task.FromResult(match is null ? null : new HinovaVoluntarioDetalhe(match.Codigo, match.Nome, match.Cpf, ["1"]));
+    }
+
+    public Task<string> CadastrarVoluntarioAsync(string tokenUsuario, CadastrarVoluntarioRequest request, CancellationToken ct) =>
+        Task.FromResult((_proximoCodigo++).ToString());
 }

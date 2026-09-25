@@ -124,4 +124,67 @@ public class HinovaClientTests
         Assert.Null(carla.Telefone);
         Assert.Empty(bruno.Cooperativas);
     }
+
+    [Fact]
+    public async Task BuscarVoluntario_returns_null_on_a_404()
+    {
+        var (client, handler) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
+
+        var found = await client.BuscarVoluntarioAsync("token-usuario", "99999999999", CancellationToken.None);
+
+        Assert.Null(found);
+        Assert.Equal("https://api.hinova.com.br/api/sga/v2/buscar/voluntario/99999999999", handler.LastRequest!.RequestUri!.ToString());
+    }
+
+    [Fact]
+    public async Task BuscarVoluntario_parses_codigo_and_cooperativa_codes_on_success()
+    {
+        const string json = """
+            {
+                "codigo_voluntario": "99",
+                "nome": "HINOVA SOLUÇÕES DIGITAIS",
+                "cpf": "99999999999",
+                "cooperativas": [{ "codigo_cooperativa": "9", "nome_cooperativa": "Central" }]
+            }
+            """;
+        var (client, handler) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        var found = await client.BuscarVoluntarioAsync("token-usuario", "99", CancellationToken.None);
+
+        Assert.NotNull(found);
+        Assert.Equal(("99", "HINOVA SOLUÇÕES DIGITAIS", "99999999999"), (found!.Codigo, found.Nome, found.Cpf));
+        Assert.Equal(["9"], found.CooperativaCodigos);
+        Assert.Equal("Bearer", handler.LastRequest!.Headers.Authorization!.Scheme);
+        Assert.Equal("token-usuario", handler.LastRequest.Headers.Authorization!.Parameter);
+    }
+
+    [Fact]
+    public async Task CadastrarVoluntario_sends_every_field_and_returns_codigo_voluntario()
+    {
+        HttpRequestMessage? captured = null;
+        var (client, handler) = NewClient(req =>
+        {
+            captured = req;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { mensagem = "OK", codigo_voluntario = "131" }),
+            };
+        });
+
+        var request = new CadastrarVoluntarioRequest(
+            "Fulano de Tal", "11122233344", "11999998888", "fulano@teste.local",
+            "Rua X", "10", "Ap 1", "Bairro", "Cidade", "UF", "30000-000",
+            ["9", "10"], "101", "Cadastrado via indicação de João Silva em 25/09/2026.");
+
+        var codigo = await client.CadastrarVoluntarioAsync("token-usuario", request, CancellationToken.None);
+
+        Assert.Equal("131", codigo);
+        Assert.Equal("https://api.hinova.com.br/api/sga/v2/voluntario/cadastrar", handler.LastRequest!.RequestUri!.ToString());
+        var body = await captured!.Content!.ReadAsStringAsync();
+        Assert.Contains("\"codigo_voluntario_vinculado\":\"101\"", body);
+        Assert.Contains("\"codigo_cooperativa\":\"9\"", body);
+    }
 }

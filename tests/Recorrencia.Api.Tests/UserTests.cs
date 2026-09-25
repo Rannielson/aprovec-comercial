@@ -646,4 +646,57 @@ public class UserTests(ApiFixture api)
         Assert.Equal("301", await api.SqlScalarAsync<string>(
             "select codigo_voluntario from hinova_voluntario_mapping where user_id = @id", new { id }));
     }
+
+    [Fact]
+    public async Task Admin_sets_a_new_password_and_revokes_existing_sessions()
+    {
+        var s = await api.SeedAsync();
+        var maria = await LoginAsync(s, "maria");
+        var admin = await LoginAsync(s, "admin");
+
+        await ApiClient.ExpectAsync(
+            await admin.PutAsync($"/users/{s.Maria}/password", new { password = "senha-nova-da-maria" }),
+            HttpStatusCode.NoContent);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await maria.GetAsync("/me")).StatusCode);
+
+        var novoLogin = api.Client(s.Slug);
+        await novoLogin.LoginAsync($"maria@{s.Slug}.local", "senha-nova-da-maria");
+    }
+
+    [Fact]
+    public async Task Setting_a_weak_password_is_rejected()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+
+        var response = await admin.PutAsync($"/users/{s.Maria}/password", new { password = "curta" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("auth.weak_password", await ApiClient.CodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Setting_a_password_for_a_deactivated_user_is_a_conflict()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsync(s, "admin");
+        await ApiClient.ExpectAsync(await admin.PostAsync($"/users/{s.Maria}/deactivate"), HttpStatusCode.NoContent);
+
+        var response = await admin.PutAsync($"/users/{s.Maria}/password", new { password = "senha-nova-da-maria" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("users.desligado", await ApiClient.CodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Setting_a_password_without_usuarios_convidar_is_forbidden()
+    {
+        var s = await api.SeedAsync();
+        var joao = await LoginAsync(s, "joao");
+
+        var response = await joao.PutAsync($"/users/{s.Maria}/password", new { password = "senha-nova-da-maria" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
 }

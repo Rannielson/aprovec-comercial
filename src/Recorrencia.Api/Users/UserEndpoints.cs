@@ -16,6 +16,7 @@ public static class UserEndpoints
         string? CodigoVoluntario, string? NomeHinova, string? CpfHinova, string? Password);
     public sealed record SupervisorRequest(Guid? SupervisorId);
     public sealed record UserRolesRequest(Guid[]? RoleIds);
+    public sealed record SetUserPasswordRequest(string? Password);
 
     public sealed class UserRow
     {
@@ -38,6 +39,7 @@ public static class UserEndpoints
         app.MapPost("/users", InviteAsync).RequirePermission("usuarios.convidar");
         app.MapPut("/users/{id:guid}/supervisor", ChangeSupervisorAsync).RequirePermission("estrutura.editar");
         app.MapPost("/users/{id:guid}/deactivate", DeactivateAsync).RequirePermission("usuarios.desligar");
+        app.MapPut("/users/{id:guid}/password", SetPasswordAsync).RequirePermission("usuarios.convidar");
         app.MapPut("/users/{id:guid}/roles", SetRolesAsync).RequirePermission("usuarios.gerenciar_perfis");
     }
 
@@ -224,6 +226,26 @@ public static class UserEndpoints
             await RoleGuards.EnsureProfileManagerRemainsAsync(tx);
             await tx.ExecuteAsync("select app.revoke_user_sessions(@id)", new { id });
             await WriteAsync(tx, tenant, actor, "users.deactivate", "users", id, new { status }, new { status = "desligado" });
+            return 0;
+        }, ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> SetPasswordAsync(Guid id, SetUserPasswordRequest body, RequestContext request,
+        Database db, PasswordHasher hasher, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        PasswordPolicy.Validate(body.Password);
+        var hash = hasher.Hash(body.Password!);
+        await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            var status = await tx.QuerySingleOrDefaultAsync<string>("select status from users where id = @id for update", new { id })
+                ?? throw new ApiProblem(StatusCodes.Status404NotFound, "users.not_found");
+            if (status == "desligado")
+                throw new ApiProblem(StatusCodes.Status409Conflict, "users.desligado");
+            await tx.ExecuteAsync("select app.set_password_admin(@id, @hash)", new { id, hash });
+            await WriteAsync(tx, tenant, actor, "users.set_password_admin", "users", id, null, null);
             return 0;
         }, ct);
         return Results.NoContent();

@@ -13,6 +13,8 @@ const messages: Record<string, string> = {
   'users.email_taken': 'Esse e-mail já está em uso por outro participante.',
   'users.name_required': 'Informe o nome do participante.',
   'users.invalid_supervisor': 'Selecione um indicador válido.',
+  'users.not_found': 'Este participante não foi encontrado.',
+  'users.desligado': 'Este participante está desligado — reative-o antes de definir uma senha.',
   'plan.invalid_effective_from': 'Escolha o mês de início da vigência.',
   'hinova.credenciais_invalidas': 'A Hinova não aceitou essas credenciais. Confira usuário, senha e token.',
   'hinova.nao_configurado': 'Configure as credenciais da Hinova antes de buscar voluntários.',

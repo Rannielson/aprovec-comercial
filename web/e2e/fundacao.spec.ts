@@ -198,3 +198,73 @@ test('admin monta uma árvore comissionada buscando um voluntário na Hinova', a
   await vinculo.getByRole('button', { name: 'Desvincular' }).click();
   await expect(vinculo).not.toBeVisible();
 });
+
+test('indicação: gerar link, preencher formulário, aprovar e logar', async ({ page }) => {
+  const cpf = `1112223${Date.now() % 10000}`;
+  const email = `indicado-${Date.now()}@e2e.aprovec.local`;
+
+  // Vincula Pedro Santos ao voluntário 103 da Hinova (fake de dev) para ele poder gerar um link.
+  await login(page, tenant, 'admin@aprovec.local');
+  await page.getByRole('link', { name: 'Configurações' }).click();
+  await page.getByLabel('Usuário', { exact: true }).fill('usuario-dev');
+  await page.getByLabel('Senha').fill('senha-dev');
+  await page.getByLabel('Token da SGA').fill('token-dev');
+  await page.getByRole('button', { name: 'Salvar credenciais' }).click();
+  await expect(page.getByText('Credenciais salvas.')).toBeVisible();
+  await page.getByLabel('Buscar voluntário por nome').fill('Carla');
+  await page.getByLabel('Buscar voluntário por nome').press('Enter');
+  await page.getByLabel('Usuário APROVEC').selectOption({ label: 'Pedro Santos' });
+  await page.getByRole('button', { name: 'Vincular' }).click();
+  await expect(page.getByText('Voluntário vinculado.')).toBeVisible();
+
+  // Pedro pega o próprio link de indicação.
+  await login(page, tenant, 'pedro@aprovec.local');
+  await expect(page.getByLabel('Seu link de indicação')).toBeVisible();
+  const link = await page.getByLabel('Seu link de indicação').inputValue();
+
+  // Um visitante (sem sessão) abre o link e preenche o formulário.
+  await page.goto(link);
+  await expect(page.getByRole('heading', { name: 'Você foi indicado por Pedro Santos' })).toBeVisible();
+  await page.getByLabel('Nome completo').fill('Indicado E2E');
+  await page.getByLabel('CPF').fill(cpf);
+  await page.getByLabel('Celular').fill('11999990000');
+  await page.getByLabel('E-mail').fill(email);
+  await page.getByLabel('CEP').fill('01310-100');
+  await page.getByLabel('Número').fill('100');
+  await page.getByLabel('Bairro').fill('Bela Vista');
+  await page.getByLabel('Cidade').fill('São Paulo');
+  await page.getByLabel('Estado').fill('SP');
+  await page.getByRole('button', { name: 'Solicitar cadastro' }).click();
+  await expect(page.getByText('Solicitação enviada!')).toBeVisible();
+
+  // O administrador aprova.
+  await login(page, tenant, 'admin@aprovec.local');
+  await page.getByRole('link', { name: 'Convites' }).click();
+  await expect(page).toHaveURL(`${tenant}/administracao/convites`);
+  const linha = page.getByRole('row', { name: new RegExp(cpf) });
+  await expect(linha).toBeVisible();
+  await expect(linha).toContainText('Pedro Santos');
+  await linha.getByRole('button', { name: 'Aprovar' }).click();
+  // `SolicitacaoActions` (administracao/convites/solicitacao-actions.tsx) só renderiza
+  // `approveState.error`, nunca `approveState.message` -- diferente de todos os outros
+  // formulários de ação deste app (credenciais-form, mapeamento-form, indicacao-form, etc.),
+  // que sempre mostram `state.message` em caso de sucesso. Não há nenhum texto de confirmação
+  // visível após aprovar; o sinal observável de sucesso é a linha sumir da fila (a action chama
+  // `revalidatePath('/administracao/convites')`, que remove a solicitação já aprovada da lista).
+  await expect(linha).not.toBeVisible();
+
+  // O novo participante recebe o e-mail e consegue definir a senha e logar.
+  await page.goto(await latestLinkFor(email));
+  await page.getByLabel('Nova senha').fill('senha-do-indicado-1');
+  await page.getByLabel('Confirme a senha').fill('senha-do-indicado-1');
+  await page.getByRole('button', { name: 'Salvar senha' }).click();
+  await expect(page.getByRole('complementary').getByText('Indicado E2E')).toBeVisible();
+
+  // Limpeza: desvincula Pedro da Hinova para deixar o voluntário 103 livre de novo (mesmo padrão
+  // de limpeza dos outros testes deste arquivo que usam o banco de dev persistente).
+  await page.goto(`${tenant}/configuracoes/integracoes`);
+  const vinculosAtuaisPedro = page.locator('section', { has: page.getByRole('heading', { name: 'Vínculos atuais' }) });
+  const vinculoPedro = vinculosAtuaisPedro.getByRole('row', { name: /Pedro Santos/ });
+  await vinculoPedro.getByRole('button', { name: 'Desvincular' }).click();
+  await expect(vinculoPedro).not.toBeVisible();
+});

@@ -67,15 +67,15 @@ Um link permanente e reutilizável por usuário, gerado sob demanda na primeira 
 create table convite_links (
   tenant_id uuid not null references tenants (id),
   user_id uuid not null,
-  token_hash text not null,
+  token text not null,
   criado_em timestamptz not null default now(),
   primary key (tenant_id, user_id),
-  unique (token_hash),
+  unique (token),
   foreign key (tenant_id, user_id) references users (tenant_id, id)
 );
 ```
 
-Segue exatamente o padrão já usado em `invite_tokens`/`Tokens.New()`/`Tokens.Hash()`: 32 bytes aleatórios, base64url; só o hash SHA-256 é persistido; o token puro só existe no link entregue à pessoa. Diferença chave: **não expira e não é de uso único** — é o link pessoal e permanente do consultor, para compartilhar quantas vezes quiser.
+Gerado com `Tokens.New()` (32 bytes aleatórios, base64url) — mesma primitiva de `invite_tokens` — mas **guardado em texto puro, não com hash**. Diferente de um token de troca de senha, este não é uma credencial de uma vez: é um identificador público e permanente do consultor (equivalente a um "código de indicação"), que precisa poder ser mostrado de novo sempre que a pessoa pedir para ver seu link — algo que um hash SHA-256 (que não é reversível) não permite. Conhecer o token só permite abrir o formulário público em nome desse indicador, o mesmo privilégio que já existe assim que o link é compartilhado uma vez; não expõe senha, e-mail nem nenhum outro dado sensível. Não expira e não é de uso único.
 
 ## Fluxo público (sem login)
 

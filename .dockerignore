@@ -1,0 +1,10 @@
+.git
+**/bin
+**/obj
+web
+mockup
+design
+docs
+tests
+tmp
+.env

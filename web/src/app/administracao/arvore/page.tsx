@@ -1,0 +1,276 @@
+import { notFound } from 'next/navigation';
+import { AppShell } from '../../app-shell';
+import { ApiError, apiFetch, currentHost } from '@/lib/api';
+import { Icon } from '../../components/app-icon';
+import { messageFor } from '@/lib/errors';
+import { currentCompetencia, formatCompetencia, formatMoney, formatPercent, isCompetencia } from '@/lib/format';
+import { treeLayout } from '@/lib/tree-layout';
+import type { Commissions, CommissionPlan, HinovaVoluntario, Me, UserNode } from '@/lib/types';
+import { NOVA_ARVORE } from './constants';
+import { buildEstrutura, type Participante } from './estrutura';
+import { Pyramid } from './pyramid';
+
+export default async function ArvorePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ root?: string; modo?: string; buscarParticipante?: string; adicionar?: string; competencia?: string }>;
+}) {
+  const host = await currentHost();
+  if (host.kind !== 'tenant') notFound();
+
+  const me = await apiFetch<Me>('/me');
+  const has = (key: string) => me.permissions.some((p) => p.key === key);
+  if (!has('estrutura.visualizar')) {
+    return (
+      <AppShell me={me} active="arvore">
+        <div className="shell">
+          <section className="card">
+            <p className="muted">Seu perfil não inclui acesso à estrutura comercial.</p>
+          </section>
+        </div>
+      </AppShell>
+    );
+  }
+
+  const { root, modo, buscarParticipante, adicionar, competencia: competenciaParam } = await searchParams;
+  const mode = modo === 'lista' ? 'lista' : 'arvore';
+  const searchQuery = buscarParticipante?.trim() ?? '';
+  const competencia = isCompetencia(competenciaParam) ? competenciaParam : currentCompetencia();
+
+  // Each API call below has its own permission; the page degrades instead of failing when one is missing.
+  const showValues = has('comissoes.visualizar');
+  // Existence alone isn't enough: an `own` scope returns only the viewer's own row (see buildEstrutura).
+  const commissionScope = me.permissions.find((p) => p.key === 'comissoes.visualizar')?.scope ?? null;
+  // POST /users with Hinova fields needs usuarios.convidar + integracoes.gerenciar (and the voluntário
+  // search needs integracoes.gerenciar); setting a supervisor additionally needs estrutura.editar.
+  const canAddRoot = has('usuarios.convidar') && has('integracoes.gerenciar');
+  const canAddChild = canAddRoot && has('estrutura.editar');
+
+  // Anyone who can reach this page already holds regras_comissao.visualizar (administrador has every
+  // permission; coordenador -- the only other role with estrutura.visualizar at 'tenant' scope -- has
+  // it too per 0006_rbac_catalog.sql), so this fetch degrades the same way the others above do rather
+  // than actually needing a guard.
+  const canSeePlans = has('regras_comissao.visualizar');
+  const [users, commissions, plans] = await Promise.all([
+    apiFetch<UserNode[]>('/users'),
+    showValues ? apiFetch<Commissions>(`/commissions/${competencia}`) : Promise.resolve(null),
+    canSeePlans ? apiFetch<CommissionPlan[]>('/commission-plans') : Promise.resolve([]),
+  ]);
+
+  const { sellers, rates } = buildEstrutura(users, commissions, { id: me.id, commissionScope });
+
+  // The observed rates above come from this competência's beneficiaries, which is empty until
+  // someone actually has paid activity -- a brand-new tree (or a real one built ahead of its first
+  // payment, like this one) would otherwise show no percentage anywhere. Fall back to the plan
+  // that's actually active for this competência (same selection PlanSelector.ForCompetencia uses
+  // server-side: highest effectiveFrom <= competência, among 'ativo' plans).
+  const activePlan = plans
+    .filter((p) => p.status === 'ativo' && p.effectiveFrom.slice(0, 7) <= competencia)
+    .sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1))[0] ?? null;
+  const planOwn = activePlan?.rules.find((r) => r.type === 'own')?.rate ?? null;
+  const planUplineRates = (activePlan?.rules ?? [])
+    .filter((r) => r.type === 'upline' && r.level !== null)
+    .map((r) => ({ level: r.level as number, rate: r.rate }));
+  const displayOwn = rates.own ?? planOwn;
+  const displayReferral = rates.referral ?? planUplineRates.find((r) => r.level === 1)?.rate ?? null;
+  const displayUplineRates = [
+    ...rates.uplineRates,
+    ...planUplineRates.filter((p) => !rates.uplineRates.some((r) => r.level === p.level)),
+  ].sort((a, b) => a.level - b.level);
+  const people: Record<string, Participante> = Object.fromEntries(sellers.map((s) => [s.id, s]));
+  const roots = sellers.filter((s) => s.parentId === null).map((s) => ({ id: s.id, name: s.name }));
+  // Like the mockup, only a real tree top is a valid `root`; anything else falls back to all trees.
+  const selectedRoot = root && roots.some((r) => r.id === root) ? root : '';
+
+  const layout = treeLayout(
+    sellers.map((s) => ({ id: s.id, parentId: s.parentId })),
+    { rootId: selectedRoot || null, newRoot: canAddRoot },
+  );
+
+  const initialTarget =
+    adicionar === NOVA_ARVORE && canAddRoot ? NOVA_ARVORE : adicionar && canAddChild && people[adicionar] ? adicionar : null;
+
+  let voluntarios: HinovaVoluntario[] = [];
+  let searchError: string | null = null;
+  // Fetched unconditionally (not just when searchQuery is set): which node's "+" panel is open is
+  // client-only state (no navigation on click), so the list has to already be here, ready to show
+  // in full, the moment any panel opens -- not just after the admin types something.
+  if (mode === 'arvore' && canAddRoot) {
+    try {
+      voluntarios = await apiFetch<HinovaVoluntario[]>(
+        `/integracoes/hinova/voluntarios?${new URLSearchParams({ query: searchQuery }).toString()}`,
+      );
+    } catch (error) {
+      searchError =
+        error instanceof ApiError
+          ? messageFor(error.code)
+          : 'Não foi possível buscar voluntários na Hinova agora. Tente novamente em instantes.';
+    }
+  }
+
+  const money = (value: number) => (showValues ? formatMoney(value) : '—');
+  const userName = new Map(users.map((u) => [u.id, u.name]));
+
+  function hrefFor(nextMode: 'arvore' | 'lista'): string {
+    const p = new URLSearchParams();
+    if (selectedRoot) p.set('root', selectedRoot);
+    if (nextMode === 'lista') p.set('modo', 'lista');
+    if (competenciaParam) p.set('competencia', competencia);
+    const qs = p.toString();
+    return qs ? `/administracao/arvore?${qs}` : '/administracao/arvore';
+  }
+
+  return (
+    <AppShell me={me} active="arvore">
+      <div className="shell">
+        <div className="page-heading with-action">
+          <div>
+            <p className="eyebrow">Administração comercial</p>
+            <h1>Árvore comissionada</h1>
+            <p className="muted">Construa cada ramificação, pessoa por pessoa.</p>
+          </div>
+          {canAddRoot && (
+            <a className="action-link" href={`/administracao/arvore?adicionar=${NOVA_ARVORE}`}>
+              <Icon name="plus" />
+              Nova árvore
+            </a>
+          )}
+        </div>
+
+        <section className="card pyramid-panel">
+          <div className="pyramid-header">
+            <div>
+              <h2>Uma base. Várias árvores.</h2>
+              <p>
+                {sellers.length} {sellers.length === 1 ? 'vendedor' : 'vendedores'} · {roots.length}{' '}
+                {roots.length === 1 ? 'árvore' : 'árvores'} · competência de {formatCompetencia(competencia)}
+                {canAddChild && mode === 'arvore' ? ' · Use o + abaixo de cada pessoa para adicionar um indicado.' : ''}
+              </p>
+              <form className="inline" method="get">
+                {selectedRoot && <input type="hidden" name="root" value={selectedRoot} />}
+                {mode === 'lista' && <input type="hidden" name="modo" value="lista" />}
+                <label>
+                  Competência
+                  <input type="month" name="competencia" defaultValue={competencia} />
+                </label>
+                <button type="submit" className="secondary">Ver</button>
+              </form>
+            </div>
+            <div className="segmented" role="group" aria-label="Visualização da estrutura">
+              <a href={hrefFor('arvore')} className={mode === 'arvore' ? 'selected' : undefined} aria-current={mode === 'arvore' ? 'page' : undefined}>
+                <Icon name="people" />
+                Árvore
+              </a>
+              <a href={hrefFor('lista')} className={mode === 'lista' ? 'selected' : undefined} aria-current={mode === 'lista' ? 'page' : undefined}>
+                <Icon name="grid" />
+                Lista
+              </a>
+            </div>
+          </div>
+
+          {mode === 'arvore' ? (
+            <Pyramid
+              layout={layout}
+              people={people}
+              rates={{ own: displayOwn, uplineRates: displayUplineRates }}
+              roots={roots}
+              selectedRoot={selectedRoot}
+              showValues={showValues}
+              canAddChild={canAddChild}
+              competencia={competencia}
+              initialTarget={initialTarget}
+              voluntarios={voluntarios}
+              searchQuery={searchQuery}
+              searchError={searchError}
+            />
+          ) : (
+            <div className="table-wrap">
+              <table className="pyramid-list">
+                <thead>
+                  <tr>
+                    <th>Participante</th>
+                    <th>Perfil</th>
+                    <th>Indicador direto</th>
+                    <th className="number">Taxa</th>
+                    <th className="number">Recebidos na carteira</th>
+                    <th className="number">Comissão total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sellers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="empty-state">
+                        <Icon name="people" />
+                        <strong>Nenhum participante ainda</strong>
+                        <span>Comece uma nova árvore para cadastrar o primeiro vendedor.</span>
+                      </td>
+                    </tr>
+                  ) : (
+                    <>
+                      {sellers.map((s) => (
+                        <tr key={s.id}>
+                          <td>
+                            <PersonLabel name={s.name} detail={s.email} />
+                          </td>
+                          <td>
+                            <span className="badge progress">Vendedor</span>
+                          </td>
+                          <td>{s.supervisorId ? (userName.get(s.supervisorId) ?? '—') : 'Sem indicador'}</td>
+                          <td className="number">{s.rate !== null && !s.valuesHidden ? formatPercent(s.rate) : '—'}</td>
+                          <td className="number amount">{s.valuesHidden ? '—' : money(s.recebido)}</td>
+                          <td className={s.comissao > 0 && !s.valuesHidden ? 'number amount earned' : 'number amount muted'}>
+                            {s.valuesHidden ? '—' : money(s.comissao)}
+                          </td>
+                        </tr>
+                      ))}
+                    </>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="pyramid-legend">
+            <span>
+              <i className="legend-direct" />
+              Indicador{displayReferral !== null ? `: ${formatPercent(displayReferral)}` : ''} sobre o nível direto
+            </span>
+            <span>
+              {displayOwn !== null && <b>{formatPercent(displayOwn)}</b>} Carteira própria de cada vendedor
+            </span>
+          </div>
+        </section>
+
+        <div className="network-rule-strip">
+          <Icon name="people" />
+          <div>
+            <strong>Cada indicado pode formar a sua própria ramificação.</strong>
+            <p>
+              A árvore cresce em novos níveis. Cada pessoa recebe sobre a própria carteira e sobre as carteiras de seus
+              indicados, conforme o plano de remuneração. Novos participantes começam sem recebimentos.
+            </p>
+          </div>
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
+function PersonLabel({ name, detail }: { name: string; detail: string }) {
+  return (
+    <div className="associate-button">
+      <span className="row-avatar network-avatar">
+        {name
+          .split(' ')
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part) => part[0])
+          .join('')}
+      </span>
+      <span>
+        <strong>{name}</strong>
+        <span className="plate">{detail}</span>
+      </span>
+    </div>
+  );
+}

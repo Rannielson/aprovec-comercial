@@ -1,0 +1,41 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json.Serialization;
+using Microsoft.Extensions.Options;
+
+namespace Recorrencia.Api.Email;
+
+/// <summary>
+/// Sends real email through the Resend API (https://resend.com/docs/api-reference/emails/send-email).
+/// Chosen over LogEmailSender/FileEmailSender in Program.cs whenever Resend:ApiKey is configured.
+/// </summary>
+public sealed class ResendEmailSender(HttpClient http, IOptions<ResendOptions> options) : IEmailSender
+{
+    public async Task SendAsync(string to, string subject, string body, CancellationToken ct)
+    {
+        // body is the branded HTML produced by EmailTemplates -- sent as html, not text, so
+        // clients render the actual design instead of the raw markup.
+        using var request = new HttpRequestMessage(HttpMethod.Post, "emails")
+        {
+            Content = JsonContent.Create(new SendRequest($"APROVEC <{options.Value.FromAddress}>", [to], subject, body)),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.Value.ApiKey);
+
+        using var response = await http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ErrorResponse>(cancellationToken: ct);
+            throw new ResendException(error?.Message ?? $"Resend respondeu {(int)response.StatusCode}.");
+        }
+    }
+
+    private sealed record SendRequest(
+        [property: JsonPropertyName("from")] string From,
+        [property: JsonPropertyName("to")] string[] To,
+        [property: JsonPropertyName("subject")] string Subject,
+        [property: JsonPropertyName("html")] string Html);
+
+    private sealed record ErrorResponse([property: JsonPropertyName("message")] string? Message);
+}
+
+public sealed class ResendException(string message) : Exception(message);

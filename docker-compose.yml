@@ -1,0 +1,83 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: recorrencia
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d recorrencia"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      dockerfile: src/Recorrencia.Db/Dockerfile
+    entrypoint: ["sh", "-c", "dotnet Recorrencia.Db.dll bootstrap && dotnet Recorrencia.Db.dll migrate"]
+    environment:
+      DB_SUPERUSER_CONNECTION: Host=db;Port=5432;Database=recorrencia;Username=postgres;Password=${POSTGRES_PASSWORD}
+      DB_OWNER_CONNECTION: Host=db;Port=5432;Database=recorrencia;Username=app_owner;Password=${DB_OWNER_PASSWORD}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD}
+      DB_APP_USER_PASSWORD: ${DB_APP_USER_PASSWORD}
+      DB_SUPERADMIN_PASSWORD: ${DB_SUPERADMIN_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: src/Recorrencia.Api/Dockerfile
+    environment:
+      ConnectionStrings__App: Host=db;Port=5432;Database=recorrencia;Username=app_user;Password=${DB_APP_USER_PASSWORD}
+      ConnectionStrings__Superadmin: Host=db;Port=5432;Database=recorrencia;Username=app_superadmin;Password=${DB_SUPERADMIN_PASSWORD}
+      Internal__Key: ${INTERNAL_API_KEY:?defina INTERNAL_API_KEY no .env}
+      Web__Scheme: ${WEB_SCHEME:-https}
+      Web__RootDomain: ${ROOT_DOMAIN:?defina ROOT_DOMAIN no .env}
+      Hinova__EncryptionKey: ${HINOVA_ENCRYPTION_KEY:?defina HINOVA_ENCRYPTION_KEY no .env}
+      Hinova__UseFake: ${HINOVA_USE_FAKE:-false}
+      Resend__ApiKey: ${RESEND_API_KEY:-}
+      Resend__FromAddress: ${RESEND_FROM_ADDRESS:-onboarding@resend.dev}
+    expose:
+      - "8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+    environment:
+      API_INTERNAL_URL: http://api:8080
+      API_INTERNAL_KEY: ${INTERNAL_API_KEY}
+      ROOT_DOMAIN: ${ROOT_DOMAIN}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1, not localhost: this image's wget resolves "localhost" to ::1 first, and
+      # the Next.js server only binds the IPv4 wildcard, so the IPv6 attempt is refused.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  db-data:

@@ -165,4 +165,30 @@ public class HinovaIntegracaoTests(PostgresFixture db)
         Assert.True(await db.AsAppUserAsync(tenant, admin, (c, tx) =>
             c.ExecuteScalarAsync<bool>("select app.has_permission('integracoes.gerenciar')", null, tx)));
     }
+
+    [Fact]
+    public async Task Administrador_can_update_a_mapeamento()
+    {
+        var (tenant, admin) = await _seed.ProvisionAsync();
+        await ActivateAsync(admin);
+        var vendedor = await _seed.UserAsync(tenant, "Vendedor");
+        await db.AsAppUserAsync(tenant, admin, (c, tx) => c.ExecuteAsync(
+            """
+            insert into hinova_voluntario_mapping (tenant_id, user_id, codigo_voluntario, nome_hinova, cpf_hinova, mapped_by)
+            values (@tenant, @vendedor, '101', 'Nome Hinova', '11111111111', @admin)
+            """,
+            new { tenant, vendedor, admin }, tx));
+
+        await db.AsAppUserAsync(tenant, admin, (c, tx) => c.ExecuteAsync(
+            """
+            update hinova_voluntario_mapping set codigo_voluntario = '102', nome_hinova = 'Outro Nome', cpf_hinova = '22222222222'
+             where tenant_id = @tenant and user_id = @vendedor
+            """,
+            new { tenant, vendedor }, tx));
+
+        var codigo = await db.AsAppUserAsync(tenant, admin, (c, tx) => c.ExecuteScalarAsync<string>(
+            "select codigo_voluntario from hinova_voluntario_mapping where tenant_id = @tenant and user_id = @vendedor",
+            new { tenant, vendedor }, tx));
+        Assert.Equal("102", codigo);
+    }
 }

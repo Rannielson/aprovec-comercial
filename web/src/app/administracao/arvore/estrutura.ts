@@ -39,7 +39,12 @@ export type Participante = {
 export type Estrutura = {
   sellers: Participante[];
   /** Tenant-wide rates observed this competência, for the legend and the "Nova árvore" card. */
-  rates: { own: number | null; referral: number | null };
+  rates: {
+    own: number | null;
+    referral: number | null;
+    /** Every `upline` level's rate seen this competência, tenant-wide — not capped at 2 levels. */
+    uplineRates: { level: number; rate: number }[];
+  };
 };
 
 const isReferral = (r: BeneficiaryCommission['byRule'][number]) => r.ruleType === 'upline' && r.level === 1;
@@ -119,9 +124,17 @@ export function buildEstrutura(
   });
 
   const allRules = beneficiaries.flatMap((b) => b.byRule);
+  const uplineRates = Array.from(
+    new Map(
+      allRules.filter((r) => r.ruleType === 'upline' && r.level !== null).map((r) => [r.level as number, r.rate]),
+    ),
+  )
+    .map(([level, rate]) => ({ level, rate }))
+    .sort((a, b) => a.level - b.level);
   const rates = {
     own: allRules.find((r) => r.ruleType === 'own')?.rate ?? null,
     referral: allRules.find(isReferral)?.rate ?? null,
+    uplineRates,
   };
 
   // The active commission plan is tenant-wide (one `own` rate, one level-1 `upline` rate), so someone

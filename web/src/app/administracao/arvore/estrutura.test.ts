@@ -96,6 +96,12 @@ describe('buildEstrutura', () => {
     // The two levels together account for the rest of the total (1700 = 1400 + 200 + 100).
     const uplineTotal = ana.uplineRules.reduce((sum, r) => sum + r.amount, 0);
     expect(ana.ownAmount + uplineTotal).toBe(ana.comissao);
+    // Tenant-wide, so a level's rate is known even for someone who has no entry of their own
+    // this competência (e.g. bia, with no upline rule at all above).
+    expect(result.rates.uplineRates).toEqual([
+      { level: 1, rate: 0.02 },
+      { level: 2, rate: 0.02 },
+    ]);
   });
 
   it('hides uplineRules (not just recebido/comissao) for a person outside the viewer\'s scope', () => {

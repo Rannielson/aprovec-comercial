@@ -35,6 +35,10 @@ export type Commissions = {
   beneficiaries: BeneficiaryCommission[];
 };
 
+export type CommissionPlanRule = { id: string; type: 'own' | 'upline' | 'global'; rate: number; level: number | null; groupId: string | null };
+
+export type CommissionPlan = { id: string; name: string; effectiveFrom: string; status: 'rascunho' | 'ativo'; rules: CommissionPlanRule[] };
+
 export type PlatformTenant = { id: string; slug: string; name: string; status: 'ativo' | 'suspenso'; createdAt: string };
 
 export type PlatformMe = { id: string; email: string };

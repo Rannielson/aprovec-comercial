@@ -23,6 +23,7 @@ export function PersonDetail({
   competencia,
   showValues,
   canAddChild,
+  uplineRates,
   onClose,
   onAddIndicado,
 }: {
@@ -31,6 +32,8 @@ export function PersonDetail({
   competencia: string;
   showValues: boolean;
   canAddChild: boolean;
+  /** Tenant-wide rate per level, for labeling a branch even when `p` has no rule of their own this competência. */
+  uplineRates: { level: number; rate: number }[];
   onClose: () => void;
   onAddIndicado: (personId: string) => void;
 }) {
@@ -53,6 +56,10 @@ export function PersonDetail({
   const netosOf = (directId: string) => Object.values(people).filter((candidate) => candidate.parentId === directId);
   const nivel1 = p.uplineRules.find((r) => r.level === 1) ?? null;
   const nivel2 = p.uplineRules.find((r) => r.level === 2) ?? null;
+  // Falls back to the tenant-wide rate for a level p has no rule of their own for this competência
+  // (e.g. p earned nothing this month), so the branch still says what it will pay once activity starts.
+  const rate1 = nivel1?.rate ?? uplineRates.find((r) => r.level === 1)?.rate ?? null;
+  const rate2 = nivel2?.rate ?? uplineRates.find((r) => r.level === 2)?.rate ?? null;
 
   return (
     <Overlay title="Composição da comissão" subtitle={`${p.name} · ${subtitle}`} onClose={onClose}>
@@ -109,7 +116,9 @@ export function PersonDetail({
                       <small>
                         {nivel1 !== null && !p.valuesHidden && !direto.valuesHidden
                           ? `${formatMoney(direto.recebido)} × ${formatPercent(nivel1.rate)} = ${formatMoney(round2(direto.recebido * nivel1.rate))}`
-                          : '1º nível'}
+                          : rate1 !== null
+                            ? `1º nível · ${formatPercent(rate1)}`
+                            : '1º nível'}
                       </small>
                     </div>
                   </div>
@@ -123,7 +132,9 @@ export function PersonDetail({
                             <small>
                               {nivel2 !== null && !p.valuesHidden && !neto.valuesHidden
                                 ? `${formatMoney(neto.recebido)} × ${formatPercent(nivel2.rate)} = ${formatMoney(round2(neto.recebido * nivel2.rate))}`
-                                : '2º nível'}
+                                : rate2 !== null
+                                  ? `2º nível · ${formatPercent(rate2)}`
+                                  : '2º nível'}
                             </small>
                           </div>
                         </div>

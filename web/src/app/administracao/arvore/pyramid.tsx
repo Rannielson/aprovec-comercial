@@ -41,7 +41,7 @@ export function Pyramid({
 }: {
   layout: TreeLayout;
   people: Record<string, Participante>;
-  rates: { own: number | null };
+  rates: { own: number | null; uplineRates: { level: number; rate: number }[] };
   /** Every forest root, for the "Árvore em exibição" selector (independent of the current `root` filter). */
   roots: { id: string; name: string }[];
   selectedRoot: string;
@@ -447,6 +447,7 @@ export function Pyramid({
           competencia={competencia}
           showValues={showValues}
           canAddChild={canAddChild}
+          uplineRates={rates.uplineRates}
           onClose={() => setDetail(null)}
           onAddIndicado={(personId) => {
             setDetail(null);

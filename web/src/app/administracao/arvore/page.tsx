@@ -5,7 +5,7 @@ import { Icon } from '../../components/app-icon';
 import { messageFor } from '@/lib/errors';
 import { currentCompetencia, formatCompetencia, formatMoney, formatPercent, isCompetencia } from '@/lib/format';
 import { treeLayout } from '@/lib/tree-layout';
-import type { Commissions, HinovaVoluntario, Me, UserNode } from '@/lib/types';
+import type { Commissions, CommissionPlan, HinovaVoluntario, Me, UserNode } from '@/lib/types';
 import { NOVA_ARVORE } from './constants';
 import { buildEstrutura, type Participante } from './estrutura';
 import { Pyramid } from './pyramid';
@@ -46,12 +46,37 @@ export default async function ArvorePage({
   const canAddRoot = has('usuarios.convidar') && has('integracoes.gerenciar');
   const canAddChild = canAddRoot && has('estrutura.editar');
 
-  const [users, commissions] = await Promise.all([
+  // Anyone who can reach this page already holds regras_comissao.visualizar (administrador has every
+  // permission; coordenador -- the only other role with estrutura.visualizar at 'tenant' scope -- has
+  // it too per 0006_rbac_catalog.sql), so this fetch degrades the same way the others above do rather
+  // than actually needing a guard.
+  const canSeePlans = has('regras_comissao.visualizar');
+  const [users, commissions, plans] = await Promise.all([
     apiFetch<UserNode[]>('/users'),
     showValues ? apiFetch<Commissions>(`/commissions/${competencia}`) : Promise.resolve(null),
+    canSeePlans ? apiFetch<CommissionPlan[]>('/commission-plans') : Promise.resolve([]),
   ]);
 
   const { sellers, rates } = buildEstrutura(users, commissions, { id: me.id, commissionScope });
+
+  // The observed rates above come from this competência's beneficiaries, which is empty until
+  // someone actually has paid activity -- a brand-new tree (or a real one built ahead of its first
+  // payment, like this one) would otherwise show no percentage anywhere. Fall back to the plan
+  // that's actually active for this competência (same selection PlanSelector.ForCompetencia uses
+  // server-side: highest effectiveFrom <= competência, among 'ativo' plans).
+  const activePlan = plans
+    .filter((p) => p.status === 'ativo' && p.effectiveFrom.slice(0, 7) <= competencia)
+    .sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1))[0] ?? null;
+  const planOwn = activePlan?.rules.find((r) => r.type === 'own')?.rate ?? null;
+  const planUplineRates = (activePlan?.rules ?? [])
+    .filter((r) => r.type === 'upline' && r.level !== null)
+    .map((r) => ({ level: r.level as number, rate: r.rate }));
+  const displayOwn = rates.own ?? planOwn;
+  const displayReferral = rates.referral ?? planUplineRates.find((r) => r.level === 1)?.rate ?? null;
+  const displayUplineRates = [
+    ...rates.uplineRates,
+    ...planUplineRates.filter((p) => !rates.uplineRates.some((r) => r.level === p.level)),
+  ].sort((a, b) => a.level - b.level);
   const people: Record<string, Participante> = Object.fromEntries(sellers.map((s) => [s.id, s]));
   const roots = sellers.filter((s) => s.parentId === null).map((s) => ({ id: s.id, name: s.name }));
   // Like the mockup, only a real tree top is a valid `root`; anything else falls back to all trees.
@@ -147,7 +172,7 @@ export default async function ArvorePage({
             <Pyramid
               layout={layout}
               people={people}
-              rates={{ own: rates.own }}
+              rates={{ own: displayOwn, uplineRates: displayUplineRates }}
               roots={roots}
               selectedRoot={selectedRoot}
               showValues={showValues}
@@ -208,10 +233,10 @@ export default async function ArvorePage({
           <div className="pyramid-legend">
             <span>
               <i className="legend-direct" />
-              Indicador{rates.referral !== null ? `: ${formatPercent(rates.referral)}` : ''} sobre o nível direto
+              Indicador{displayReferral !== null ? `: ${formatPercent(displayReferral)}` : ''} sobre o nível direto
             </span>
             <span>
-              {rates.own !== null && <b>{formatPercent(rates.own)}</b>} Carteira própria de cada vendedor
+              {displayOwn !== null && <b>{formatPercent(displayOwn)}</b>} Carteira própria de cada vendedor
             </span>
           </div>
         </section>

@@ -114,7 +114,9 @@ public static class SolicitacaoCadastroEndpoints
                 """,
                 new { id, tenant, indicadorId = indicador.UserId, nome, cpf, celular, email, cep, logradouro, numero, complemento, bairro, cidade, estado }), ct);
 
-            throttle.Complete(keys, false);
+            // Conta também o sucesso (mesma convenção de PasswordEndpoints.RequestResetAsync): o
+            // limite por IP é anti-spam de envios, não só de tentativas com erro.
+            throttle.Complete(keys, true);
             return Results.Created($"/solicitacoes-cadastro/{id}", new { id });
         }
         catch

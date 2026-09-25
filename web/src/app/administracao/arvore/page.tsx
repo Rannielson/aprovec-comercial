@@ -6,8 +6,9 @@ import { messageFor } from '@/lib/errors';
 import { currentCompetencia, formatCompetencia, formatMoney, formatPercent } from '@/lib/format';
 import { treeLayout } from '@/lib/tree-layout';
 import type { Commissions, HinovaVoluntario, Me, UserNode } from '@/lib/types';
+import { NOVA_ARVORE } from './constants';
 import { buildEstrutura, type Participante } from './estrutura';
-import { NOVA_ARVORE, Pyramid } from './pyramid';
+import { Pyramid } from './pyramid';
 
 export default async function ArvorePage({
   searchParams,

@@ -7,10 +7,8 @@ import { formatMoney, formatPercent } from '@/lib/format';
 import type { TreeLayout } from '@/lib/tree-layout';
 import type { HinovaVoluntario } from '@/lib/types';
 import { ParticipanteSearch } from '../participante-search';
+import { NOVA_ARVORE } from './constants';
 import type { Gestor, Participante } from './estrutura';
-
-/** `?adicionar=` value (and open-panel state) for the "Nova árvore" placeholder. */
-export const NOVA_ARVORE = 'nova';
 
 const MIN_ZOOM = 0.4;
 const MAX_ZOOM = 1.4;

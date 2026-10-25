@@ -5,17 +5,17 @@ import type { Me } from '@/lib/types';
 export type ActivePage = 'overview' | 'wallet' | 'commissions' | 'closing' | 'settings' | 'arvore' | 'participantes' | 'remuneracao' | 'convites';
 
 const NAV_ITEMS: { id: ActivePage; icon: IconName; label: string; href: string | null; permission?: string; minScope?: string }[] = [
-  { id: 'overview', icon: 'grid', label: 'Minha recorrência', href: '/' },
+  { id: 'closing', icon: 'calendar', label: 'Fechamento', href: '/fechamento' },
+  { id: 'overview', icon: 'grid', label: 'Minha recorrência', href: '/recorrencia' },
   { id: 'wallet', icon: 'wallet', label: 'Minha carteira', href: '/carteira' },
   { id: 'commissions', icon: 'percent', label: 'Comissões', href: '/comissoes' },
-  { id: 'closing', icon: 'calendar', label: 'Fechamento', href: '/fechamento' },
   { id: 'settings', icon: 'settings', label: 'Configurações', href: '/configuracoes/integracoes', permission: 'integracoes.gerenciar' },
   // Consultor also holds estrutura.visualizar (scope 'direct', per 0006_rbac_catalog.sql) so they
   // can see their own referrals, but the tree visualization itself is a whole-base view meant for
   // Coordenador ('tenant' scope) and Administrador -- Consultor gets Participantes only.
   { id: 'arvore', icon: 'people', label: 'Árvore comissionada', href: '/administracao/arvore', permission: 'estrutura.visualizar', minScope: 'tenant' },
   { id: 'participantes', icon: 'people', label: 'Participantes', href: '/administracao/participantes', permission: 'estrutura.visualizar' },
-  { id: 'convites', icon: 'people', label: 'Convites', href: '/administracao/convites', permission: 'usuarios.convidar' },
+  { id: 'convites', icon: 'people', label: 'Cadastros', href: '/administracao/convites', permission: 'usuarios.convidar' },
   { id: 'remuneracao', icon: 'shield', label: 'Remuneração', href: '/administracao/remuneracao', permission: 'regras_comissao.visualizar' },
 ];
 
@@ -45,6 +45,7 @@ export function AppShell({
   // Only Administrador (and nothing else) gets the exclusive admin console; anyone holding a
   // custom role alongside -- or any other/no template -- keeps the regular permission-based menu.
   const isAdminOnly = me.roleTemplates.length === 1 && me.roleTemplates[0] === 'administrador';
+  const activeLabel = active === 'closing' && !isAdminOnly ? 'Dashboard' : activeItem?.label ?? '';
   const visibleItems = isAdminOnly
     ? NAV_ITEMS.filter((item) => ADMIN_ONLY_NAV_IDS.includes(item.id))
     : NAV_ITEMS.filter(
@@ -70,7 +71,7 @@ export function AppShell({
                 aria-current={item.id === active ? 'page' : undefined}
               >
                 <Icon name={item.icon} />
-                <span>{item.label}</span>
+                <span>{item.id === 'closing' && !isAdminOnly ? 'Dashboard' : item.label}</span>
                 {item.id === 'convites' && !!convitesPendentes && <span className="nav-count">{convitesPendentes}</span>}
               </Link>
             ) : (
@@ -106,7 +107,7 @@ export function AppShell({
       <div className="workspace">
         <header className="shell-topbar">
           <div className="breadcrumb">
-            Comercial <span>/</span> <strong>{activeItem?.label ?? ''}</strong>
+            Comercial <span>/</span> <strong>{activeLabel}</strong>
           </div>
         </header>
         <main>{children}</main>

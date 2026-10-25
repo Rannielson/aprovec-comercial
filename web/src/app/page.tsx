@@ -3,21 +3,18 @@ import { notFound, redirect } from 'next/navigation';
 import { ApiError, currentHost } from '@/lib/api';
 import { SESSION_COOKIE } from '@/lib/session';
 import { PlatformHome } from './platform-home';
-import { TenantHome } from './tenant-home';
 
-export default async function HomePage({ searchParams }: { searchParams: Promise<{ competencia?: string }> }) {
+export default async function HomePage() {
   const host = await currentHost();
   if (host.kind === 'unknown') notFound();
   if (!(await cookies()).has(SESSION_COOKIE)) redirect('/login');
+  if (host.kind === 'tenant') redirect('/fechamento');
 
-  const { competencia } = await searchParams;
-  let content: React.ReactNode;
   try {
-    content = host.kind === 'platform' ? await PlatformHome() : await TenantHome({ competencia });
+    return await PlatformHome();
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) redirect('/login');
     if (error instanceof ApiError && error.status === 404) notFound();
     throw error;
   }
-  return content;
 }

@@ -1,7 +1,11 @@
 using Npgsql;
+using System.Text.Json;
 using Recorrencia.Api.Authorization;
 using Recorrencia.Api.Commissions;
 using Recorrencia.Api.Infrastructure;
+using Recorrencia.Api.Integracoes;
+using Recorrencia.Api.PlanosCarreira;
+using Recorrencia.Api.Security;
 using Recorrencia.Api.Tenancy;
 using static Recorrencia.Api.Audit.Audit;
 
@@ -29,6 +33,8 @@ public static class FechamentoEndpoints
         app.MapPost("/fechamentos/{competencia}/confirm", ConfirmAsync)
             .RequirePermission("fechamento.confirmar")
             .RequirePermission("fechamento.visualizar");
+        app.MapPut("/fechamentos/{competencia}/bonus-extra/{beneficiarioId:guid}", AprovarBonusExtraAsync)
+            .RequirePermission("fechamento.confirmar");
         app.MapPost("/fechamentos/{competencia}/provision", ProvisionAsync)
             .RequirePermission("fechamento.provisionar")
             .RequirePermission("fechamento.visualizar");
@@ -49,7 +55,7 @@ public static class FechamentoEndpoints
     }
 
     private static async Task<IResult> ConfirmAsync(string competencia, RequestContext request, Database db,
-        TimeProvider time, CancellationToken ct)
+        IHinovaClient hinova, AesGcmCipher cipher, TimeProvider time, CancellationToken ct)
     {
         var month = CommissionService.ParseCompetencia(competencia);
         var tenant = request.RequireTenant();
@@ -59,6 +65,13 @@ public static class FechamentoEndpoints
         var currentMonthStart = new DateOnly(currentMonth.Year, currentMonth.Month, 1);
         if (month >= currentMonthStart)
             throw new ApiProblem(StatusCodes.Status400BadRequest, "fechamento.competencia_not_closed");
+
+        var scope = await db.InTenantAsync(tenant, user,
+            tx => tx.ExecuteScalarAsync<string?>("select app.scope_for('comissoes.visualizar')"), ct);
+        if (scope != "tenant")
+            throw new ApiProblem(StatusCodes.Status403Forbidden, "fechamento.requires_full_visibility");
+
+        var bonusPlacas = await BonusPayoutService.CalculateAsync(month, tenant, user, db, hinova, cipher, time, ct);
 
         var result = await db.InTenantAsync(tenant, user, async tx =>
         {
@@ -83,10 +96,10 @@ public static class FechamentoEndpoints
             await tx.ExecuteAsync(
                 """
                 insert into fechamento_detalhes
-                  (tenant_id, fechamento_id, beneficiario_id, origem_participante_id, boleto_id, rule_id, rule_type, level, group_id, rate, base, valor)
-                select @tenant, @fechamentoId, d.beneficiario, d.origem, d.boleto, d.rule_id, d.rule_type, d.level, d.group_id, d.rate, d.base, d.valor
-                  from unnest(@beneficiarios, @origens, @boletos, @ruleIds, @ruleTypes, @levels, @groups, @rates, @bases, @valores)
-                    as d(beneficiario, origem, boleto, rule_id, rule_type, level, group_id, rate, base, valor)
+                  (tenant_id, fechamento_id, beneficiario_id, origem_participante_id, boleto_id, rule_id, rule_type, level, group_id, rate, base, valor, contract_segment)
+                select @tenant, @fechamentoId, d.beneficiario, d.origem, d.boleto, d.rule_id, d.rule_type, d.level, d.group_id, d.rate, d.base, d.valor, d.contract_segment
+                  from unnest(@beneficiarios, @origens, @boletos, @ruleIds, @ruleTypes, @levels, @groups, @rates, @bases, @valores, @contractSegments)
+                    as d(beneficiario, origem, boleto, rule_id, rule_type, level, group_id, rate, base, valor, contract_segment)
                 """,
                 new
                 {
@@ -102,18 +115,124 @@ public static class FechamentoEndpoints
                     rates = entries.Select(e => e.Rate).ToArray(),
                     bases = entries.Select(e => e.Base).ToArray(),
                     valores = entries.Select(e => e.Amount).ToArray(),
+                    contractSegments = entries.Select(e => e.ContractSegment).ToArray(),
                 });
+
+            foreach (var bonus in bonusPlacas)
+            {
+                await tx.ExecuteAsync(
+                    """
+                    insert into fechamento_remuneracao
+                      (tenant_id, fechamento_id, beneficiario_id, tipo, plano_carreira_id, plano_nome,
+                       competencia_producao, data_limite_pagamento, quantidade, valor_unitario, valor, detalhes)
+                    values (@tenant, @fechamentoId, @beneficiarioId, 'placas', @planoId, @planoNome,
+                            @producao, @limite, @quantidade, @valorUnitario, @valor, @detalhes::jsonb)
+                    """,
+                    new { tenant, fechamentoId = fechamento.Id, beneficiarioId = bonus.BeneficiarioId,
+                        planoId = bonus.PlanoId, planoNome = bonus.PlanoNome, producao = bonus.CompetenciaProducao,
+                        limite = bonus.DataLimitePagamento, quantidade = bonus.Quantidade,
+                        valorUnitario = bonus.ValorUnitario, valor = bonus.Valor,
+                        detalhes = JsonSerializer.Serialize(bonus.Placas, new JsonSerializerOptions(JsonSerializerDefaults.Web)) });
+            }
+
+            var bonusExtra = await tx.ExecuteScalarAsync<decimal>(
+                """
+                select coalesce(sum(r.valor), 0)
+                  from fechamento_remuneracao r
+                  join users u on u.id = r.beneficiario_id
+                  join planos_carreira p on p.id = u.plano_carreira_id
+                 where r.fechamento_id = @id and r.tipo = 'extra'
+                   and u.status = 'ativo' and p.status = 'ativo'
+                   and r.plano_carreira_id = p.id and r.valor = p.bonus_extra_valor
+                """, new { id = fechamento.Id });
+            var aprovacoes = await tx.ExecuteScalarAsync<int>(
+                "select count(*)::int from fechamento_remuneracao where fechamento_id = @id and tipo = 'extra'",
+                new { id = fechamento.Id });
+            var aprovacoesValidas = await tx.ExecuteScalarAsync<int>(
+                """
+                select count(*)::int from fechamento_remuneracao r
+                  join users u on u.id = r.beneficiario_id
+                  join planos_carreira p on p.id = u.plano_carreira_id
+                 where r.fechamento_id = @id and r.tipo = 'extra' and u.status = 'ativo'
+                   and p.status = 'ativo' and r.plano_carreira_id = p.id
+                   and r.valor = p.bonus_extra_valor
+                """, new { id = fechamento.Id });
+            if (aprovacoes != aprovacoesValidas)
+                throw new ApiProblem(StatusCodes.Status409Conflict, "bonus_extra.aprovacao_desatualizada");
 
             await tx.ExecuteAsync(
                 "update fechamentos set status = 'confirmado', confirmado_em = now(), confirmado_por = @user where id = @id",
                 new { user, id = fechamento.Id });
 
-            var total = entries.Sum(e => e.Amount);
+            var total = entries.Sum(e => e.Amount) + bonusPlacas.Sum(b => b.Valor) + bonusExtra;
             await WriteAsync(tx, tenant, user, "fechamentos.confirm", "fechamentos", fechamento.Id, null,
-                new { competencia = month, entries = entries.Count, total });
-            return new ConfirmResponse(month.ToString("yyyy-MM"), "confirmado", entries.Count, total);
+                new { competencia = month, entries = entries.Count + bonusPlacas.Count + aprovacoes, total });
+            return new ConfirmResponse(month.ToString("yyyy-MM"), "confirmado", entries.Count + bonusPlacas.Count + aprovacoes, total);
         }, ct);
         return Results.Ok(result);
+    }
+
+    public sealed record AprovarBonusExtraRequest(bool Aprovado);
+
+    private static async Task<IResult> AprovarBonusExtraAsync(string competencia, Guid beneficiarioId,
+        AprovarBonusExtraRequest body, RequestContext request, Database db, TimeProvider time, CancellationToken ct)
+    {
+        var month = CommissionService.ParseCompetencia(competencia);
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        var producao = BonusPayoutService.CompetenciaProducao(month);
+        await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            if (await tx.ExecuteScalarAsync<string?>("select app.scope_for('comissoes.visualizar')") != "tenant")
+                throw new ApiProblem(StatusCodes.Status403Forbidden, "fechamento.requires_full_visibility");
+            await tx.ExecuteAsync(
+                "insert into fechamentos (tenant_id, competencia) values (@tenant, @month) on conflict (tenant_id, competencia) do nothing",
+                new { tenant, month });
+            var fechamento = await tx.QuerySingleAsync<FechamentoRow>(SelectFechamento, new { tenant, month });
+            if (fechamento.Status is "confirmado" or "provisionado")
+                throw new ApiProblem(StatusCodes.Status409Conflict, "fechamento.already_confirmed");
+
+            var plano = await tx.QuerySingleOrDefaultAsync<BonusExtraPlanRow>(
+                """
+                select p.id as plano_id, p.name as plano_nome, p.bonus_extra_valor
+                  from users u join planos_carreira p on p.id = u.plano_carreira_id
+                 where u.id = @beneficiarioId and u.status = 'ativo' and p.status = 'ativo'
+                """, new { beneficiarioId });
+            if (plano?.BonusExtraValor is null)
+                throw new ApiProblem(StatusCodes.Status409Conflict, "bonus_extra.nao_configurado");
+
+            if (body.Aprovado)
+                await tx.ExecuteAsync(
+                    """
+                    insert into fechamento_remuneracao
+                      (tenant_id, fechamento_id, beneficiario_id, tipo, plano_carreira_id, plano_nome,
+                       competencia_producao, valor, aprovado_por, aprovado_em)
+                    values (@tenant, @fechamentoId, @beneficiarioId, 'extra', @planoId, @planoNome,
+                            @producao, @valor, @actor, @agora)
+                    on conflict (fechamento_id, beneficiario_id, tipo) do update
+                      set plano_carreira_id = excluded.plano_carreira_id, plano_nome = excluded.plano_nome,
+                          competencia_producao = excluded.competencia_producao, valor = excluded.valor,
+                          aprovado_por = excluded.aprovado_por, aprovado_em = excluded.aprovado_em
+                    """, new { tenant, fechamentoId = fechamento.Id, beneficiarioId,
+                        planoId = plano.PlanoId, planoNome = plano.PlanoNome, producao,
+                        valor = plano.BonusExtraValor, actor, agora = time.GetUtcNow() });
+            else
+                await tx.ExecuteAsync(
+                    "delete from fechamento_remuneracao where fechamento_id = @fechamentoId and beneficiario_id = @beneficiarioId and tipo = 'extra'",
+                    new { fechamentoId = fechamento.Id, beneficiarioId });
+            await WriteAsync(tx, tenant, actor, body.Aprovado ? "bonus_extra.aprovar" : "bonus_extra.revogar",
+                "fechamento_remuneracao", fechamento.Id, null,
+                new { competencia = month, beneficiarioId, valor = body.Aprovado ? plano.BonusExtraValor : null });
+            return 0;
+        }, ct);
+        return Results.NoContent();
+    }
+
+    private sealed class BonusExtraPlanRow
+    {
+        public Guid PlanoId { get; set; }
+        public string PlanoNome { get; set; } = "";
+        public decimal? BonusExtraValor { get; set; }
     }
 
     private static async Task<IResult> ProvisionAsync(string competencia, RequestContext request, Database db, CancellationToken ct)

@@ -47,6 +47,9 @@ public class SolicitacaoCadastroTests(ApiFixture api)
         var count = await api.SqlScalarAsync<int>(
             "select count(*) from solicitacoes_cadastro where tenant_id = @tenant and status = 'pendente'", new { tenant = s.TenantId });
         Assert.Equal(1, count);
+        Assert.True(await api.SqlScalarAsync<bool>(
+            "select processar_automaticamente from solicitacoes_cadastro where tenant_id = @tenant",
+            new { tenant = s.TenantId }));
     }
 
     [Fact]
@@ -123,10 +126,56 @@ public class SolicitacaoCadastroTests(ApiFixture api)
         var response = await anonimo.PostAsync($"/convite-links/{token}/solicitacoes", corpo);
         await ApiClient.ExpectAsync(response, HttpStatusCode.Created);
         var created = await response.Content.ReadFromJsonAsync<IdDto>(ApiClient.Json);
+        // These tests exercise the legacy admin review path. Public submissions are automatic;
+        // disable it for this row so the background worker cannot race the explicit admin action.
+        await api.SqlAsync(
+            "update solicitacoes_cadastro set processar_automaticamente = false where id = @id",
+            new { id = created!.Id });
         return (created!.Id, email);
     }
 
     public sealed record IdDto(Guid Id);
+    public sealed record VoluntarioExistenteDto(bool Encontrado, string? CodigoVoluntario, string? Nome,
+        string? Email, bool JaVinculado);
+
+    [Fact]
+    public async Task Public_submission_is_registered_automatically_and_sends_access_invite()
+    {
+        var s = await api.SeedAsync();
+        var token = await LinkTokenAsync(s, s.Joao, "901");
+        api.Hinova.BuscarPorChave["901"] = new HinovaVoluntarioDetalhe("901", "João Silva", "11111111111", ["1"]);
+        api.Hinova.ProximoCodigoCadastrado = "902";
+        var admin = api.Client(s.Slug);
+        await admin.LoginAsync($"admin@{s.Slug}.local", ApiFixture.Password);
+        await admin.PutAsync("/integracoes/hinova/credenciais", new { usuario = "usuario", senha = "senha", tokenSga = "token" });
+
+        var email = $"automatico-{Guid.NewGuid():N}@teste.local";
+        var anonimo = api.Client(s.Slug);
+        var response = await anonimo.PostAsync($"/convite-links/{token}/solicitacoes", new
+        {
+            nome = "Cadastro Automático", cpf = "98765432109", celular = "11999998888", email,
+            cep = "30000-000", logradouro = "Rua X", numero = "10", bairro = "Bairro", cidade = "Cidade", estado = "UF",
+        });
+        await ApiClient.ExpectAsync(response, HttpStatusCode.Created);
+        var id = (await response.Content.ReadFromJsonAsync<IdDto>(ApiClient.Json))!.Id;
+
+        string? status = null;
+        string? error = null;
+        for (var attempt = 0; attempt < 80; attempt++)
+        {
+            status = await api.SqlScalarAsync<string>("select status from solicitacoes_cadastro where id = @id", new { id });
+            error = await api.SqlScalarAsync<string?>("select erro_codigo from solicitacoes_cadastro where id = @id", new { id });
+            if (status == "aprovado" || error is not null) break;
+            await Task.Delay(500);
+        }
+
+        Assert.Equal("aprovado", status);
+        Assert.Null(error);
+        Assert.Equal("902", await api.SqlScalarAsync<string>(
+            "select codigo_voluntario from hinova_voluntario_mapping where tenant_id = @tenant and codigo_voluntario = '902'",
+            new { tenant = s.TenantId }));
+        Assert.Equal("Convite de acesso", api.Emails.LastTo(email)?.Subject);
+    }
 
     [Fact]
     public async Task Admin_can_list_pending_solicitacoes()
@@ -201,6 +250,90 @@ public class SolicitacaoCadastroTests(ApiFixture api)
 
         var status = await api.SqlScalarAsync<string>("select status from solicitacoes_cadastro where id = @id", new { id });
         Assert.Equal("pendente", status);
+    }
+
+    [Fact]
+    public async Task Admin_can_review_and_link_an_existing_hinova_volunteer_without_creating_a_second_one()
+    {
+        var s = await api.SeedAsync();
+        var token = await LinkTokenAsync(s, s.Joao, "318");
+        var (id, email) = await SubmitPendingAsync(s, token, "12312312312");
+        api.Hinova.BuscarPorChave["12312312312"] = new HinovaVoluntarioDetalhe(
+            "818", "Nome na Hinova", "12312312312", ["1"], "outro-email@teste.local");
+
+        var admin = api.Client(s.Slug);
+        await admin.LoginAsync($"admin@{s.Slug}.local", ApiFixture.Password);
+        await admin.PutAsync("/integracoes/hinova/credenciais", new { usuario = "usuario", senha = "senha", tokenSga = "token" });
+
+        var preview = await admin.GetJsonAsync<VoluntarioExistenteDto>($"/solicitacoes-cadastro/{id}/voluntario-existente");
+        Assert.True(preview.Encontrado);
+        Assert.Equal(("818", "Nome na Hinova", "outro-email@teste.local", false),
+            (preview.CodigoVoluntario, preview.Nome, preview.Email, preview.JaVinculado));
+
+        var previousCadastro = api.Hinova.UltimoCadastro;
+        var response = await admin.PostAsync($"/solicitacoes-cadastro/{id}/vincular-existente",
+            new { codigoVoluntario = "818" });
+        await ApiClient.ExpectAsync(response, HttpStatusCode.OK);
+        Assert.Same(previousCadastro, api.Hinova.UltimoCadastro);
+
+        var mapping = await api.SqlScalarAsync<string>(
+            "select codigo_voluntario from hinova_voluntario_mapping where tenant_id = @tenant and codigo_voluntario = '818'",
+            new { tenant = s.TenantId });
+        Assert.Equal("818", mapping);
+        var supervisor = await api.SqlScalarAsync<Guid>(
+            "select supervisor_id from users where tenant_id = @tenant and email = @email",
+            new { tenant = s.TenantId, email });
+        Assert.Equal(s.Joao, supervisor);
+        var status = await api.SqlScalarAsync<string>(
+            "select status from solicitacoes_cadastro where id = @id", new { id });
+        Assert.Equal("aprovado", status);
+        Assert.Equal("Convite de acesso", api.Emails.LastTo(email)?.Subject);
+    }
+
+    [Fact]
+    public async Task Linking_rejects_a_stale_volunteer_code_and_keeps_the_request_pending()
+    {
+        var s = await api.SeedAsync();
+        var token = await LinkTokenAsync(s, s.Joao, "319");
+        var (id, email) = await SubmitPendingAsync(s, token, "23423423423");
+        api.Hinova.BuscarPorChave["23423423423"] = new HinovaVoluntarioDetalhe(
+            "819", "Nome na Hinova", "23423423423", ["1"]);
+
+        var admin = api.Client(s.Slug);
+        await admin.LoginAsync($"admin@{s.Slug}.local", ApiFixture.Password);
+        await admin.PutAsync("/integracoes/hinova/credenciais", new { usuario = "usuario", senha = "senha", tokenSga = "token" });
+        var response = await admin.PostAsync($"/solicitacoes-cadastro/{id}/vincular-existente",
+            new { codigoVoluntario = "outro-codigo" });
+
+        await ApiClient.ExpectAsync(response, HttpStatusCode.Conflict);
+        Assert.Equal("solicitacao.voluntario_alterado", await ApiClient.CodeAsync(response));
+        Assert.Equal("pendente", await api.SqlScalarAsync<string>(
+            "select status from solicitacoes_cadastro where id = @id", new { id }));
+        Assert.Equal(0, await api.SqlScalarAsync<int>(
+            "select count(*) from users where tenant_id = @tenant and email = @email", new { tenant = s.TenantId, email }));
+    }
+
+    [Fact]
+    public async Task Linking_does_not_reuse_a_volunteer_already_mapped_to_another_user()
+    {
+        var s = await api.SeedAsync();
+        var token = await LinkTokenAsync(s, s.Joao, "320");
+        var (id, _) = await SubmitPendingAsync(s, token, "34534534534");
+        api.Hinova.BuscarPorChave["34534534534"] = new HinovaVoluntarioDetalhe(
+            "320", "João Silva", "34534534534", ["1"]);
+
+        var admin = api.Client(s.Slug);
+        await admin.LoginAsync($"admin@{s.Slug}.local", ApiFixture.Password);
+        await admin.PutAsync("/integracoes/hinova/credenciais", new { usuario = "usuario", senha = "senha", tokenSga = "token" });
+        var preview = await admin.GetJsonAsync<VoluntarioExistenteDto>($"/solicitacoes-cadastro/{id}/voluntario-existente");
+        Assert.True(preview.JaVinculado);
+
+        var response = await admin.PostAsync($"/solicitacoes-cadastro/{id}/vincular-existente",
+            new { codigoVoluntario = "320" });
+        await ApiClient.ExpectAsync(response, HttpStatusCode.Conflict);
+        Assert.Equal("hinova.vinculo_duplicado", await ApiClient.CodeAsync(response));
+        Assert.Equal("pendente", await api.SqlScalarAsync<string>(
+            "select status from solicitacoes_cadastro where id = @id", new { id }));
     }
 
     [Fact]

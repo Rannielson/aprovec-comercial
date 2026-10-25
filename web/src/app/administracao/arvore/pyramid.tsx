@@ -13,7 +13,7 @@ import { PersonDetail, type PersonDetailTarget } from './person-detail';
 
 const MIN_ZOOM = 0.4;
 const MAX_ZOOM = 1.4;
-const PANEL_WIDTH = 320;
+const PANEL_WIDTH = 360;
 
 const initials = (name: string) =>
   name
@@ -207,8 +207,9 @@ export function Pyramid({
     };
   }
   // The panel lives on the unscaled stage (so it stays readable at any zoom), pinned under its anchor.
+  const panelWidth = Math.min(PANEL_WIDTH, Math.max(280, layout.width * zoom - 16));
   const panelLeft = panel
-    ? Math.max(8, Math.min(panel.anchorX * zoom - PANEL_WIDTH / 2, layout.width * zoom - PANEL_WIDTH - 8))
+    ? Math.max(8, Math.min(panel.anchorX * zoom - panelWidth / 2, layout.width * zoom - panelWidth - 8))
     : 0;
 
   const newRootNote = rates.own !== null ? `${formatPercent(rates.own)} sobre a própria carteira` : null;
@@ -410,7 +411,7 @@ export function Pyramid({
               className="pyramid-add-panel"
               role="group"
               aria-label={panel.title}
-              style={{ left: panelLeft, top: panel.anchorY * zoom, width: PANEL_WIDTH }}
+              style={{ left: panelLeft, top: panel.anchorY * zoom, width: panelWidth }}
               onKeyDown={onPanelKeyDown}
             >
               <div className="pyramid-add-panel-head">

@@ -1,27 +1,43 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { AppShell } from '../app-shell';
-import { apiFetch, currentHost } from '@/lib/api';
+import { ApiError, apiFetch, currentHost } from '@/lib/api';
 import { Icon } from '../components/app-icon';
 import { ConfirmarButton, ProvisionarButton } from './fechamento-actions';
+import { PayoutStatement } from './payout-statement';
+import { ConsultantDashboard } from './consultant-dashboard';
+import { AutoRefresh } from '../components/auto-refresh';
+import { LiveFilterInput } from '../components/live-filter-input';
+import { messageFor } from '@/lib/errors';
 import {
   currentCompetencia,
   formatCompetencia,
   formatMoney,
-  formatPercent,
+  isCompetencia,
   previousCompetencia,
-  ruleLabel,
   statusBadgeClass,
   statusLabels,
 } from '@/lib/format';
-import type { Commissions, Fechamento, Me } from '@/lib/types';
+import type { Commissions, Fechamento, LostCommission, Me, Pagamento } from '@/lib/types';
+import { SESSION_COOKIE } from '@/lib/session';
 
 const STEP_LABELS = ['Apuração concluída', 'Confirmação', 'Provisionamento'];
 
-export default async function FechamentoPage() {
+export default async function FechamentoPage({ searchParams }: {
+  searchParams: Promise<{ competencia?: string }>;
+}) {
   const host = await currentHost();
   if (host.kind !== 'tenant') notFound();
 
-  const me = await apiFetch<Me>('/me');
+  if (!(await cookies()).has(SESSION_COOKIE)) redirect('/login');
+
+  let me: Me;
+  try {
+    me = await apiFetch<Me>('/me');
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) redirect('/login');
+    throw error;
+  }
   const canSeeFechamento = me.permissions.some((p) => p.key === 'fechamento.visualizar');
   if (!canSeeFechamento) {
     return (
@@ -42,17 +58,57 @@ export default async function FechamentoPage() {
   const isFullVisibility = me.permissions.find((p) => p.key === 'comissoes.visualizar')?.scope === 'tenant';
 
   const currentMonth = currentCompetencia();
-  const month = previousCompetencia(currentMonth);
+  const lastClosedMonth = previousCompetencia(currentMonth);
+  const latestMonth = canConfirm ? lastClosedMonth : currentMonth;
+  const requested = (await searchParams).competencia;
+  const month = isCompetencia(requested) && requested <= latestMonth ? requested : latestMonth;
 
-  const [fechamentos, monthCommissions, currentCommissions] = await Promise.all([
+  const [fechamentos, currentCommissions] = await Promise.all([
     apiFetch<Fechamento[]>('/fechamentos'),
-    apiFetch<Commissions>(`/commissions/${month}`),
-    apiFetch<Commissions>(`/commissions/${currentMonth}`),
+    canConfirm ? apiFetch<Commissions>(`/commissions/${currentMonth}`) : Promise.resolve(null),
   ]);
   const fechamento = fechamentos.find((f) => f.competencia === month) ?? null;
-  const monthOwn = monthCommissions.beneficiaries.find((b) => b.userId === me.id) ?? null;
-  const monthTotal = isFullVisibility ? monthCommissions.total : monthOwn?.total ?? 0;
-  const currentTotal = isFullVisibility ? currentCommissions.total : currentCommissions.beneficiaries.find((b) => b.userId === me.id)?.total ?? 0;
+  const closed = fechamento?.status === 'confirmado' || fechamento?.status === 'provisionado';
+  let previewError: string | null = null;
+  let payout: Pagamento;
+  try {
+    payout = await apiFetch<Pagamento>(`/payouts/${month}${canConfirm && !closed ? '/preview' : ''}`,
+      { timeoutMs: 180_000 });
+  } catch (error) {
+    if (!(error instanceof ApiError) || !canConfirm || closed) throw error;
+    previewError = messageFor(error.code);
+    payout = await apiFetch<Pagamento>(`/payouts/${month}`);
+  }
+  const monthTotal = isFullVisibility ? payout.total : payout.beneficiarios.find((b) => b.userId === me.id)?.total ?? 0;
+  const currentTotal = currentCommissions
+    ? isFullVisibility ? currentCommissions.total : currentCommissions.beneficiaries.find((b) => b.userId === me.id)?.total ?? 0
+    : 0;
+
+  if (!canConfirm) {
+    const person = payout.beneficiarios.find((b) => b.userId === me.id) ?? null;
+    const lost = await apiFetch<LostCommission>(`/commissions/${month}/lost`);
+    return (
+      <AppShell me={me} active="closing">
+        <AutoRefresh />
+        <div className="shell consultant-dashboard-shell">
+          <div className="page-heading dashboard-heading">
+            <div>
+              <p className="eyebrow">Painel do consultor</p>
+              <h1>Dashboard</h1>
+              <p className="muted">Veja quanto você vai receber e de onde vem cada valor.</p>
+            </div>
+            <form method="get" className="closing-period-picker">
+              <label>Competência do pagamento
+                <LiveFilterInput key={month} type="month" name="competencia" initialValue={month} max={currentMonth} />
+              </label>
+              <button type="submit" className="secondary">Ver mês</button>
+            </form>
+          </div>
+          <ConsultantDashboard payout={payout} person={person} lost={lost} />
+        </div>
+      </AppShell>
+    );
+  }
 
   const status = fechamento?.status ?? null;
   const complete = [true, status === 'confirmado' || status === 'provisionado', status === 'provisionado'];
@@ -94,7 +150,9 @@ export default async function FechamentoPage() {
             ? `Revise o total apurado de toda a operação antes de confirmar o demonstrativo de ${formatCompetencia(month)}.`
             : `Revise a comissão própria e a indicação direta antes de confirmar o demonstrativo de ${formatCompetencia(month)}.`}
         </p>
-        {canConfirm ? (
+        {previewError ? (
+          <p role="alert" className="error">A bonificação por placas precisa ser conferida antes da confirmação: {previewError}</p>
+        ) : canConfirm ? (
           <ConfirmarButton competencia={month} />
         ) : (
           <p className="muted">Aguardando confirmação do administrador.</p>
@@ -112,9 +170,16 @@ export default async function FechamentoPage() {
           <p className="muted">Confira seu demonstrativo e acompanhe as próximas etapas.</p>
         </div>
 
+        <form method="get" className="closing-period-picker">
+          <label>Competência do pagamento
+            <input type="month" name="competencia" defaultValue={month} max={lastClosedMonth} />
+          </label>
+          <button type="submit" className="secondary">Ver demonstrativo</button>
+        </form>
+
         <div className="closing-banner">
           <Icon name="info" />
-          Você está conferindo {formatCompetencia(month)}. A competência de {formatCompetencia(currentMonth)} continua em apuração, com{' '}
+          Você está conferindo {formatCompetencia(month)}. A comissão da árvore de {formatCompetencia(currentMonth)} continua em apuração, com{' '}
           <strong>{formatMoney(currentTotal)}</strong> até o corte atual.
         </div>
 
@@ -137,43 +202,7 @@ export default async function FechamentoPage() {
         </div>
 
         <div className="closing-layout">
-          <section className="card statement">
-            <div className="panel-header">
-              <div>
-                <h2>Demonstrativo de comissão</h2>
-                <p>{isFullVisibility ? 'Toda a operação' : me.name} · Competência {month}</p>
-              </div>
-              <span className={monthBadgeClass}>{monthBadgeLabel}</span>
-            </div>
-            {isFullVisibility ? (
-              <div className="statement-row">
-                <span><strong>Comissão apurada de todos os participantes</strong></span>
-                <span>{monthCommissions.beneficiaries.length} {monthCommissions.beneficiaries.length === 1 ? 'beneficiário' : 'beneficiários'}</span>
-                <strong>{formatMoney(monthCommissions.total)}</strong>
-              </div>
-            ) : monthOwn && monthOwn.byRule.length > 0 ? (
-              monthOwn.byRule.map((rule) => (
-                <div className="statement-row" key={`${rule.ruleType}-${rule.level}-${rule.groupId}-${rule.rate}`}>
-                  <span><strong>{ruleLabel(rule)}</strong></span>
-                  <span>{formatMoney(rule.base)} <small>× {formatPercent(rule.rate)}</small></span>
-                  <strong>{formatMoney(rule.amount)}</strong>
-                </div>
-              ))
-            ) : (
-              <p className="muted" style={{ padding: '24px' }}>Nenhuma comissão apurada nesta competência.</p>
-            )}
-            <div className="statement-total">
-              <div>
-                <span>{isFullVisibility ? 'Total da operação no período' : 'Seu total no período'}</span>
-                <small>Comissão apurada de {formatCompetencia(month)}</small>
-              </div>
-              <strong>{formatMoney(monthTotal)}</strong>
-            </div>
-            <div className="statement-foot">
-              <Icon name="shield" />
-              O demonstrativo mantém separados o valor recebido, a taxa e a comissão.
-            </div>
-          </section>
+          <PayoutStatement payout={payout} isFullVisibility={isFullVisibility} viewerId={me.id} canApproveExtra={canConfirm && !closed} />
           <section className="card next-step">{nextStep()}</section>
         </div>
 

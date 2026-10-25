@@ -15,6 +15,7 @@ public sealed class FakeHinovaClient : IHinovaClient
     /// key (CPF or código) -- simulates the CPF-already-in-Hinova collision. Leave empty for the
     /// happy path (not found = null).</summary>
     public Dictionary<string, HinovaVoluntarioDetalhe> BuscarPorChave { get; } = new();
+    public Dictionary<string, string> ContatosAssociados { get; } = new();
 
     public string ProximoCodigoCadastrado { get; set; } = "999";
     public CadastrarVoluntarioRequest? UltimoCadastro { get; private set; }
@@ -23,6 +24,7 @@ public sealed class FakeHinovaClient : IHinovaClient
     /// ImportarBoletosAsync's paging loop has something to walk. Empty by default (no boletos).</summary>
     public List<HinovaBoletoPagina> BoletosPaginas { get; } = [];
     public HinovaBoletoPeriodoFiltro? UltimoFiltroBoletos { get; private set; }
+    public Func<HinovaBoletoPeriodoFiltro, CancellationToken, Task>? BeforeListBoletos { get; set; }
 
     public Task<string> AutenticarAsync(string usuario, string senha, string tokenSga, CancellationToken ct) =>
         RejectAuth ? throw new HinovaAuthException() : Task.FromResult("token-usuario-fake");
@@ -33,18 +35,23 @@ public sealed class FakeHinovaClient : IHinovaClient
     public Task<HinovaVoluntarioDetalhe?> BuscarVoluntarioAsync(string tokenUsuario, string cpfOuCodigo, CancellationToken ct) =>
         Task.FromResult(BuscarPorChave.GetValueOrDefault(cpfOuCodigo));
 
+    public Task<string?> BuscarContatoAssociadoAsync(string tokenUsuario, string codigoAssociado, CancellationToken ct) =>
+        Task.FromResult(ContatosAssociados.GetValueOrDefault(codigoAssociado));
+
     public Task<string> CadastrarVoluntarioAsync(string tokenUsuario, CadastrarVoluntarioRequest request, CancellationToken ct)
     {
         UltimoCadastro = request;
         return Task.FromResult(ProximoCodigoCadastrado);
     }
 
-    public Task<HinovaBoletoPagina> ListarBoletosPeriodoAsync(string tokenUsuario, HinovaBoletoPeriodoFiltro filtro, CancellationToken ct)
+    public async Task<HinovaBoletoPagina> ListarBoletosPeriodoAsync(string tokenUsuario, HinovaBoletoPeriodoFiltro filtro, CancellationToken ct)
     {
+        if (BeforeListBoletos is not null)
+            await BeforeListBoletos(filtro, ct);
         UltimoFiltroBoletos = filtro;
         var pagina = filtro.InicioPaginacao < BoletosPaginas.Count
             ? BoletosPaginas[filtro.InicioPaginacao]
             : new HinovaBoletoPagina(BoletosPaginas.Count, 0, filtro.InicioPaginacao, []);
-        return Task.FromResult(pagina);
+        return pagina;
     }
 }

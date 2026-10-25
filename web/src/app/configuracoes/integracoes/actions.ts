@@ -4,6 +4,28 @@ import { revalidatePath } from 'next/cache';
 import { ApiError, apiFetch } from '@/lib/api';
 import { messageFor } from '@/lib/errors';
 import type { FormState } from '@/lib/form-state';
+import type { HinovaBoletoSync } from '@/lib/types';
+
+type SyncState = FormState & { jobId?: string };
+
+export async function iniciarSyncBoletos(_: SyncState, formData: FormData): Promise<SyncState> {
+  const competencia = String(formData.get('competencia') ?? '');
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia))
+    return { error: 'Selecione um mês válido.' };
+  try {
+    const job = await apiFetch<HinovaBoletoSync>('/integracoes/hinova/boletos/syncs', {
+      method: 'POST', body: { competencia },
+    });
+    return { message: `Sincronização de ${competencia.slice(5)}/${competencia.slice(0, 4)} iniciada.`, jobId: job.id };
+  } catch (error) {
+    if (error instanceof ApiError) return { error: messageFor(error.code) };
+    throw error;
+  }
+}
+
+export async function listarSyncBoletos(): Promise<HinovaBoletoSync[]> {
+  return apiFetch<HinovaBoletoSync[]>('/integracoes/hinova/boletos/syncs');
+}
 
 export async function salvarCredenciaisHinova(_: FormState, formData: FormData): Promise<FormState> {
   try {

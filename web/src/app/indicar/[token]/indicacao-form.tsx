@@ -76,7 +76,7 @@ export function IndicacaoForm({ token }: { token: string }) {
         <input name="estado" type="text" defaultValue={endereco.estado} key={`estado-${endereco.estado}`} required />
       </label>
       {state.error && <p role="alert" className="error">{state.error}</p>}
-      <button type="submit" disabled={pending}>{pending ? 'Enviando…' : 'Solicitar cadastro'}</button>
+      <button type="submit" disabled={pending}>{pending ? 'Enviando…' : 'Enviar cadastro'}</button>
     </form>
   );
 }

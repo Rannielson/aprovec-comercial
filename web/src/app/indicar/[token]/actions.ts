@@ -28,5 +28,5 @@ export async function solicitarCadastro(_: FormState, formData: FormData): Promi
     if (error instanceof ApiError) return { error: messageFor(error.code) };
     throw error;
   }
-  return { message: 'Solicitação enviada! Você vai receber um e-mail quando ela for aprovada.' };
+  return { message: 'Cadastro recebido! O sistema fará o registro na Hinova e enviará por e-mail o convite para definir sua senha. Se houver alguma divergência, a equipe poderá revisar seus dados.' };
 }

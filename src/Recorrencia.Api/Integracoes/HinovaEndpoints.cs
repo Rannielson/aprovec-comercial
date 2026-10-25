@@ -235,7 +235,11 @@ public static class HinovaEndpoints
     }
 
     public sealed record ImportarBoletosRequest(string? Competencia);
-    public sealed record ImportarBoletosResponse(int TotalBoletos, int Importados, int SemVinculo, int ConflitoMultiploVendedor, int NaoPago);
+    public sealed record ImportarBoletosResponse(int TotalBoletos, int Importados, int SemVinculo, int ConflitoMultiploVendedor, int NaoPago,
+        int VencimentoRetornados = 0, int VencimentoVinculados = 0);
+    public sealed record ImportarBoletosProgress(string Fase, int TotalBoletos, int PagamentosConsultados,
+        int PagamentosProcessados, int Importados, int SemVinculo, int ConflitoMultiploVendedor, int NaoPago,
+        int VencimentoRetornados, int VencimentosConsultados, int VencimentosProcessados, int VencimentoVinculados);
 
     private sealed class MapeamentoCodigoRow
     {
@@ -251,38 +255,73 @@ public static class HinovaEndpoints
         if (string.IsNullOrWhiteSpace(body.Competencia))
             throw new ApiProblem(StatusCodes.Status400BadRequest, "commission.invalid_competencia");
         var mesInicio = CommissionService.ParseCompetencia(body.Competencia);
+        return Results.Ok(await ImportarBoletosCoreAsync(mesInicio, tenant, actor, db, hinova, cipher, ct));
+    }
+
+    internal static async Task<ImportarBoletosResponse> ImportarBoletosCoreAsync(
+        DateOnly mesInicio, Guid tenant, Guid actor, Database db, IHinovaClient hinova, AesGcmCipher cipher, CancellationToken ct,
+        Func<ImportarBoletosProgress, CancellationToken, Task>? reportProgress = null,
+        bool incluirVencimentos = true, DateOnly? pagamentoInicio = null, DateOnly? pagamentoFim = null,
+        bool ignorarImportados = false, bool somenteVencimentos = false)
+    {
         var mesFim = mesInicio.AddMonths(1).AddDays(-1);
+        var inicioPagamento = pagamentoInicio ?? mesInicio;
+        var fimPagamento = pagamentoFim ?? mesFim;
 
         var tokenUsuario = await HinovaAuth.GetTokenUsuarioAsync(db, tenant, actor, cipher, hinova, ct);
 
         var mapeamentos = await db.InTenantAsync(tenant, actor, tx => tx.QueryAsync<MapeamentoCodigoRow>(
             "select user_id, codigo_voluntario from hinova_voluntario_mapping where tenant_id = @tenant", new { tenant }), ct);
         var userIdPorCodigo = mapeamentos.ToDictionary(m => m.CodigoVoluntario, m => m.UserId);
-        if (userIdPorCodigo.Count == 0)
-            return Results.Ok(new ImportarBoletosResponse(0, 0, 0, 0, 0));
+        if (userIdPorCodigo.Count == 0 && !await db.InTenantAsync(tenant, actor, tx => tx.ExecuteScalarAsync<bool>(
+            "select exists(select 1 from boletos where tenant_id = @tenant and hinova_nosso_numero is not null)",
+            new { tenant }), ct))
+            return new ImportarBoletosResponse(0, 0, 0, 0, 0);
 
-        // General by date only -- codigo_voluntario is matched client-side below, against each
-        // returned boleto's own veiculos[] (see HinovaBoletoPeriodoFiltro for why).
-        var todosBoletos = new List<HinovaBoleto>();
-        var pagina = 0;
-        while (true)
-        {
-            var page = await hinova.ListarBoletosPeriodoAsync(
-                tokenUsuario, new HinovaBoletoPeriodoFiltro(mesInicio, mesFim, 100, pagina), ct);
-            todosBoletos.AddRange(page.Boletos);
-            pagina++;
-            if (page.Boletos.Count == 0 || page.NumeroPaginas == 0 || pagina >= page.NumeroPaginas)
-                break;
-        }
 
         var importados = 0;
         var semVinculo = 0;
         var conflito = 0;
         var naoPago = 0;
-        await db.InTenantAsync(tenant, actor, async tx =>
+        var vencimentoVinculados = 0;
+        var pagamentosTotal = 0;
+        var pagamentosConsultados = 0;
+        var pagamentosProcessados = 0;
+        var vencimentosTotal = 0;
+        var vencimentosConsultados = 0;
+        var vencimentosProcessados = 0;
+        async Task ReportAsync(string fase) {
+            if (reportProgress is not null)
+                await reportProgress(new ImportarBoletosProgress(fase, pagamentosTotal, pagamentosConsultados,
+                    pagamentosProcessados, importados, semVinculo, conflito, naoPago,
+                    vencimentosTotal, vencimentosConsultados, vencimentosProcessados, vencimentoVinculados), ct);
+        }
+
+        // General by date only -- codigo_voluntario is matched client-side below, against each
+        // returned boleto's own veiculos[] (see HinovaBoletoPeriodoFiltro for why).
+        var todosBoletos = somenteVencimentos ? new List<HinovaBoleto>() : await ListarPeriodoAsync(hinova, tokenUsuario, inicioPagamento, fimPagamento, false, ct,
+            async (consultados, total) => {
+                pagamentosConsultados = consultados;
+                pagamentosTotal = total;
+                await ReportAsync("buscando_pagamentos");
+            });
+        pagamentosTotal = todosBoletos.Count;
+
+        var hoje = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTime.UtcNow, "America/Sao_Paulo"));
+        foreach (var lote in todosBoletos.Chunk(100))
         {
-            foreach (var boleto in todosBoletos)
+            await db.InTenantAsync(tenant, actor, async tx =>
             {
+            foreach (var boleto in lote)
+            {
+                if (pagamentoInicio is not null && (boleto.DataPagamento is null ||
+                    boleto.DataPagamento < inicioPagamento || boleto.DataPagamento > fimPagamento))
+                    continue;
+                if (ignorarImportados && await tx.ExecuteScalarAsync<bool>(
+                    "select exists(select 1 from boletos where tenant_id = @tenant and hinova_nosso_numero = @numero and status = 'recebido' and pago_em is not null)",
+                    new { tenant, numero = boleto.NossoNumero }))
+                    continue;
+
                 // Every vehicle on a boleto belongs to exactly one vendedor, but a boleto can carry
                 // several vehicles -- when they're all the same vendedor's, the whole payment is
                 // theirs (counted once, not once per vehicle); when they resolve to more than one
@@ -295,26 +334,48 @@ public static class HinovaEndpoints
                     .Distinct()
                     .ToList();
 
-                if (vendorIds.Count == 0) { semVinculo++; continue; }
-                if (vendorIds.Count > 1) { conflito++; continue; }
+                if (vendorIds.Count == 0)
+                {
+                    semVinculo++;
+                    // An existing payment may have been attributed manually before a
+                    // volunteer mapping was created. A missing current mapping alone
+                    // does not invalidate that historical attribution.
+                    continue;
+                }
+                if (vendorIds.Count > 1)
+                {
+                    conflito++;
+                    await HoldPreviouslyImportedBoletoAsync(tx, tenant, boleto.NossoNumero, "multiple_mapped_volunteers");
+                    continue;
+                }
                 // The date filter is by data_pagamento, but confirmed against the real API: it
                 // still returns boletos due in that window whose payment hasn't actually landed
                 // yet (valor_pagamento 0 or absent, data_pagamento null) -- only real confirmed
                 // payments should ever generate commission, so these are counted, not imported.
-                if (boleto.ValorPagamento <= 0 || boleto.DataPagamento is null) { naoPago++; continue; }
+                if (boleto.ValorPagamento <= 0 || boleto.DataPagamento is null)
+                {
+                    naoPago++;
+                    await HoldPreviouslyImportedBoletoAsync(tx, tenant, boleto.NossoNumero, "payment_not_confirmed");
+                    continue;
+                }
 
                 var placa = boleto.Veiculos.FirstOrDefault(v => v.Placa is not null)?.Placa;
-                await tx.ExecuteAsync(
+                var boletoId = await tx.ExecuteScalarAsync<Guid?>(
                     """
                     insert into boletos (tenant_id, participante_id, associado_ref, associado_nome, placa, valor, status, vencimento, pago_em, hinova_nosso_numero)
                     values (@tenant, @participante, @associadoRef, @associadoNome, @placa, @valor, 'recebido', @vencimento, @pagoEm, @nossoNumero)
                     on conflict (tenant_id, hinova_nosso_numero) where hinova_nosso_numero is not null
                     do update set participante_id = excluded.participante_id, valor = excluded.valor,
-                                  pago_em = excluded.pago_em, placa = excluded.placa, updated_at = now()
+                                  status = 'recebido', vencimento = excluded.vencimento,
+                                  pago_em = excluded.pago_em, placa = excluded.placa,
+                                  commission_hold_reason = null, updated_at = now()
+                    where not @ignorarImportados or boletos.status <> 'recebido' or boletos.pago_em is null
+                    returning id
                     """,
                     new
                     {
                         tenant,
+                        ignorarImportados,
                         participante = vendorIds[0],
                         associadoRef = boleto.CodigoAssociado,
                         associadoNome = boleto.NomeAssociado,
@@ -327,13 +388,204 @@ public static class HinovaEndpoints
                         pagoEm = boleto.DataPagamento,
                         nossoNumero = boleto.NossoNumero,
                     });
+                if (boletoId is not { } idImportado) continue;
+                await SaveBoletoVeiculosAsync(tx, tenant, idImportado, boleto.Veiculos);
                 importados++;
             }
+            return 0;
+            }, ct);
+            pagamentosProcessados += lote.Length;
+            await ReportAsync("importando_pagamentos");
+        }
+        // Finish persisting payments before querying the outstanding wallets.
+        var mesesVencimento = new HashSet<DateOnly>();
+        var vinculadosPorMes = new Dictionary<DateOnly, int>();
+        var boletosPorVencimento = new List<HinovaBoleto>();
+        if (incluirVencimentos)
+        {
+            mesesVencimento.Add(mesInicio);
+            if (ignorarImportados)
+            {
+                var anteriores = await db.InTenantAsync(tenant, actor, tx => tx.QueryAsync<DateOnly>(
+                    """
+                    select distinct date_trunc('month', vencimento)::date
+                      from boletos
+                     where tenant_id = @tenant and status in ('atraso', 'a_vencer')
+                       and hinova_nosso_numero is not null
+                       and vencimento < @mesInicio
+                    """, new { tenant, mesInicio }), ct);
+                mesesVencimento.UnionWith(anteriores);
+            }
+            foreach (var mes in mesesVencimento.Order())
+            {
+                var anteriores = boletosPorVencimento.Count;
+                var rows = await ListarPeriodoAsync(hinova, tokenUsuario, mes, mes.AddMonths(1).AddDays(-1), true, ct,
+                    async (consultados, total) =>
+                    {
+                        vencimentosConsultados = anteriores + consultados;
+                        vencimentosTotal = anteriores + total;
+                        await ReportAsync("buscando_vencimentos");
+                    });
+                boletosPorVencimento.AddRange(rows);
+            }
+            vencimentosTotal = boletosPorVencimento.Count;
+        }
+        foreach (var lote in boletosPorVencimento.Chunk(100))
+        {
+            await db.InTenantAsync(tenant, actor, async tx =>
+            {
+            foreach (var boleto in lote)
+            {
+                var vendorIds = boleto.Veiculos
+                    .Select(v => v.CodigoVoluntario)
+                    .Where(c => c is not null && userIdPorCodigo.ContainsKey(c))
+                    .Select(c => userIdPorCodigo[c!])
+                    .Distinct()
+                    .ToList();
+                if (vendorIds.Count != 1 || boleto.Vencimento is null || !mesesVencimento.Contains(new DateOnly(boleto.Vencimento.Value.Year, boleto.Vencimento.Value.Month, 1))
+                    || boleto.ValorBoleto <= 0 || string.IsNullOrWhiteSpace(boleto.NossoNumero))
+                    continue;
+
+                // The real API can echo valor_boleto in valor_pagamento on an unpaid row.
+                // Only a genuine payment date makes it received.
+                var isPaid = boleto.DataPagamento is not null && boleto.ValorPagamento > 0;
+                var status = isPaid ? "recebido"
+                    : boleto.SituacaoBoleto?.Contains("CANCEL", StringComparison.OrdinalIgnoreCase) == true ? "cancelado"
+                    : boleto.Vencimento < hoje ? "atraso" : "a_vencer";
+                var placa = boleto.Veiculos.FirstOrDefault(v => v.Placa is not null)?.Placa;
+                var boletoId = await tx.ExecuteScalarAsync<Guid>(
+                    """
+                    insert into boletos (tenant_id, participante_id, associado_ref, associado_nome, placa, valor, status, vencimento, pago_em, hinova_nosso_numero)
+                    values (@tenant, @participante, @associadoRef, @associadoNome, @placa, @valor, @status, @vencimento, @pagoEm, @nossoNumero)
+                    on conflict (tenant_id, hinova_nosso_numero) where hinova_nosso_numero is not null
+                    do update set participante_id = excluded.participante_id,
+                                  valor = case when boletos.status = 'recebido' and excluded.status <> 'recebido' then boletos.valor else excluded.valor end,
+                                  status = case when boletos.status = 'recebido' and excluded.status <> 'recebido' then boletos.status else excluded.status end,
+                                  pago_em = case when boletos.status = 'recebido' and excluded.status <> 'recebido' then boletos.pago_em else excluded.pago_em end,
+                                  vencimento = excluded.vencimento, placa = excluded.placa, updated_at = now()
+                    returning id
+                    """,
+                    new
+                    {
+                        tenant,
+                        participante = vendorIds[0],
+                        associadoRef = boleto.CodigoAssociado,
+                        associadoNome = boleto.NomeAssociado,
+                        placa,
+                        valor = isPaid ? boleto.ValorPagamento : boleto.ValorBoleto,
+                        status,
+                        vencimento = boleto.Vencimento,
+                        pagoEm = isPaid ? boleto.DataPagamento : null,
+                        nossoNumero = boleto.NossoNumero,
+                    });
+                await SaveBoletoVeiculosAsync(tx, tenant, boletoId, boleto.Veiculos);
+                vencimentoVinculados++;
+                var mesVencimento = new DateOnly(boleto.Vencimento.Value.Year, boleto.Vencimento.Value.Month, 1);
+                vinculadosPorMes[mesVencimento] = vinculadosPorMes.GetValueOrDefault(mesVencimento) + 1;
+            }
+            return 0;
+            }, ct);
+            vencimentosProcessados += lote.Length;
+            await ReportAsync("importando_vencimentos");
+        }
+
+        await db.InTenantAsync(tenant, actor, async tx =>
+        {
+
+            foreach (var mes in mesesVencimento) await tx.ExecuteAsync(
+                """
+                insert into boleto_vencimento_importacoes (tenant_id, competencia, total_retornado, total_vinculado)
+                values (@tenant, @mesInicio, @totalRetornado, @totalVinculado)
+                on conflict (tenant_id, competencia)
+                do update set importado_em = now(), total_retornado = excluded.total_retornado, total_vinculado = excluded.total_vinculado
+                """,
+                new { tenant, mesInicio = mes,
+                    totalRetornado = boletosPorVencimento.Count(b => b.Vencimento is { } d && d.Year == mes.Year && d.Month == mes.Month),
+                    totalVinculado = vinculadosPorMes.GetValueOrDefault(mes) });
             await WriteAsync(tx, tenant, actor, "hinova.boletos.importar", "boletos", null, null,
-                new { competencia = body.Competencia, total = todosBoletos.Count, importados, semVinculo, conflito, naoPago });
+                new { competencia = mesInicio.ToString("yyyy-MM"), total = todosBoletos.Count, importados, semVinculo, conflito, naoPago,
+                    vencimentoRetornados = boletosPorVencimento.Count, vencimentoVinculados });
             return 0;
         }, ct);
 
-        return Results.Ok(new ImportarBoletosResponse(todosBoletos.Count, importados, semVinculo, conflito, naoPago));
+        return new ImportarBoletosResponse(todosBoletos.Count, importados, semVinculo, conflito, naoPago,
+            boletosPorVencimento.Count, vencimentoVinculados);
+    }
+
+    private static async Task HoldPreviouslyImportedBoletoAsync(Tx tx, Guid tenant, string nossoNumero, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(nossoNumero)) return;
+        await tx.ExecuteAsync(
+            """
+            update boletos
+               set commission_hold_reason = @reason
+             where tenant_id = @tenant and hinova_nosso_numero = @nossoNumero
+               and commission_hold_reason is distinct from @reason
+            """, new { tenant, nossoNumero, reason });
+    }
+
+    private static async Task SaveBoletoVeiculosAsync(Tx tx, Guid tenant, Guid boletoId,
+        IReadOnlyList<HinovaVeiculoBoleto> veiculos)
+    {
+        for (var ordem = 0; ordem < veiculos.Count; ordem++)
+        {
+            var veiculo = veiculos[ordem];
+            await tx.ExecuteAsync(
+                """
+                insert into boleto_veiculos (tenant_id, boleto_id, ordem, codigo_veiculo, placa, data_inicio_contrato)
+                values (@tenant, @boletoId, @ordem, @codigo, @placa, @dataContrato)
+                on conflict (tenant_id, boleto_id, ordem) do update set
+                  codigo_veiculo = excluded.codigo_veiculo,
+                  placa = excluded.placa,
+                  data_inicio_contrato = case
+                    when boleto_veiculos.codigo_veiculo is not distinct from excluded.codigo_veiculo
+                     and boleto_veiculos.placa is not distinct from excluded.placa
+                    then coalesce(excluded.data_inicio_contrato, boleto_veiculos.data_inicio_contrato)
+                    else excluded.data_inicio_contrato
+                  end
+                """,
+                new { tenant, boletoId, ordem, codigo = veiculo.CodigoVeiculo,
+                    veiculo.Placa, dataContrato = veiculo.DataInicioContratoVeiculo });
+        }
+        await tx.ExecuteAsync(
+            "delete from boleto_veiculos where tenant_id = @tenant and boleto_id = @boletoId and ordem >= @count",
+            new { tenant, boletoId, count = veiculos.Count });
+    }
+
+    private static async Task<List<HinovaBoleto>> ListarPeriodoAsync(IHinovaClient hinova, string tokenUsuario,
+        DateOnly mesInicio, DateOnly mesFim, bool porVencimento, CancellationToken ct,
+        Func<int, int, Task>? reportProgress = null)
+    {
+        var result = new List<HinovaBoleto>();
+        var pagina = 0;
+        while (true)
+        {
+            HinovaBoletoPagina page;
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    page = await hinova.ListarBoletosPeriodoAsync(tokenUsuario,
+                        new HinovaBoletoPeriodoFiltro(mesInicio, mesFim, 500, pagina, FiltrarPorVencimento: porVencimento), ct);
+                    break;
+                }
+                catch (HttpRequestException ex) when (attempt < 2 && !ct.IsCancellationRequested &&
+                    (ex.StatusCode is null || (int)ex.StatusCode == 429 || (int)ex.StatusCode >= 500))
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(2 * (attempt + 1)), ct);
+                }
+                catch (OperationCanceledException) when (attempt < 2 && !ct.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(2 * (attempt + 1)), ct);
+                }
+            }
+            result.AddRange(page.Boletos);
+            if (reportProgress is not null)
+                await reportProgress(result.Count, Math.Max(page.TotalRegistros, result.Count));
+            pagina++;
+            if (page.Boletos.Count == 0 || page.NumeroPaginas == 0 || pagina >= page.NumeroPaginas)
+                break;
+        }
+        return result;
     }
 }

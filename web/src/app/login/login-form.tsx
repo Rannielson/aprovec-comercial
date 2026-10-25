@@ -5,8 +5,11 @@ import { useActionState } from 'react';
 import type { FormState } from '@/lib/form-state';
 import { login } from './actions';
 
-export function LoginForm({ platform }: { platform: boolean }) {
-  const [state, formAction, pending] = useActionState<FormState, FormData>(login, {});
+export function LoginForm({ platform, action = login }: {
+  platform: boolean;
+  action?: (state: FormState, formData: FormData) => Promise<FormState>;
+}) {
+  const [state, formAction, pending] = useActionState<FormState, FormData>(action, {});
   return (
     <form action={formAction} className="form">
       <label>

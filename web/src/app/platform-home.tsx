@@ -1,13 +1,13 @@
-import { apiFetch } from '@/lib/api';
+import { platformApiFetch } from '@/lib/api';
 import { currentCompetencia } from '@/lib/format';
 import type { PlatformMe, PlatformTenant } from '@/lib/types';
 import { CreateTenantForm } from './create-tenant-form';
 import { setTenantStatus } from './platform-actions';
 
-export async function PlatformHome() {
+export async function PlatformHome({ adminPath = false }: { adminPath?: boolean } = {}) {
   const [me, tenants] = await Promise.all([
-    apiFetch<PlatformMe>('/platform/me'),
-    apiFetch<PlatformTenant[]>('/platform/tenants'),
+    platformApiFetch<PlatformMe>('/platform/me'),
+    platformApiFetch<PlatformTenant[]>('/platform/tenants'),
   ]);
 
   return (
@@ -17,7 +17,7 @@ export async function PlatformHome() {
           <p className="eyebrow">Administração da plataforma · {me.email}</p>
           <h1>Empresas</h1>
         </div>
-        <form action="/logout" method="post">
+        <form action={adminPath ? '/admin/logout' : '/logout'} method="post">
           <button type="submit" className="secondary">Sair</button>
         </form>
       </header>

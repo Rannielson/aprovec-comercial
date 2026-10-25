@@ -1,4 +1,14 @@
-# APROVEC — Mockup local de recorrência comercial
+# APROVEC — Recorrência comercial
+
+Plataforma comercial multiempresa com API em .NET 10, frontend em Next.js e PostgreSQL com isolamento por tenant. As instruções para executar a aplicação estão em [Plataforma (fundação)](#plataforma-fundação).
+
+O sistema inclui árvore comissionada, regras de corte por contrato, planos de remuneração com bonificação por veículos únicos, carteira do consultor e demonstrativos de pagamento. O dashboard do consultor abre no mês atual; carteira e dashboard consultam os dados automaticamente a cada 30 segundos enquanto a aba está visível, preservando filtros e campos em edição.
+
+A integração Hinova tem sincronização manual e automática com acompanhamento de progresso. A rotina diária começa às 5h (`America/Recife`), busca pagamentos do dia e dos cinco dias anteriores e depois atualiza os vencimentos do mês atual e dos meses anteriores com pendências já importadas. Os boletos são identificados pelo nosso número, sem duplicação. Boletos em aberto não geram comissão; demonstrativos confirmados mantêm sua memória de cálculo.
+
+Os cadastros por indicação são processados em fila. Voluntários já existentes na Hinova podem ser vinculados pelo administrador; os convites de acesso são enviados por e-mail. O superadministrador da plataforma usa `/admin`, e os usuários do tenant usam `/login`.
+
+## Mockup original
 
 Abra `mockup/index.html` diretamente no navegador. Todos os arquivos necessários, incluindo a logo original e as fontes, estão em `mockup/`; não há serviços externos ou etapa de instalação.
 

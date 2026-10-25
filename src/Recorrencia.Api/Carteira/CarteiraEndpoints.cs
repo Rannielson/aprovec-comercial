@@ -1,5 +1,7 @@
 using Recorrencia.Api.Authorization;
 using Recorrencia.Api.Infrastructure;
+using Recorrencia.Api.Integracoes;
+using Recorrencia.Api.Security;
 using Recorrencia.Api.Tenancy;
 
 namespace Recorrencia.Api.Carteira;
@@ -30,6 +32,55 @@ public static class CarteiraEndpoints
     public static void MapCarteiraEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/carteira", ListAsync).RequirePermission("carteira.visualizar");
+        app.MapGet("/carteira/{id:guid}/whatsapp", WhatsappAsync).RequirePermission("carteira.visualizar");
+    }
+
+    private sealed class HinovaCredenciaisRow
+    {
+        public byte[] UsuarioEnc { get; set; } = [];
+        public byte[] SenhaEnc { get; set; } = [];
+        public byte[] TokenSgaEnc { get; set; } = [];
+    }
+
+    private static async Task<IResult> WhatsappAsync(Guid id, RequestContext request, Database db,
+        IHinovaClient hinova, AesGcmCipher cipher, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var user = request.RequireUser();
+        // Check the same wallet scope as the list before touching Hinova credentials. An ID from
+        // another consultant's wallet (or another tenant) must not reveal its contact.
+        var associadoRef = await db.InTenantAsync(tenant, user, tx => tx.QuerySingleOrDefaultAsync<string>(
+            """
+            select b.associado_ref from boletos b
+             where b.tenant_id = @tenant and b.id = @id
+               and b.participante_id = any(app.carteira_owner_ids())
+            """, new { tenant, id }), ct);
+        if (string.IsNullOrWhiteSpace(associadoRef))
+            throw new ApiProblem(StatusCodes.Status404NotFound, "carteira.boleto_not_found");
+
+        // The integration credentials are admin-only under RLS. The server reads them through its
+        // privileged connection only after the scoped boleto check above; they never reach the UI.
+        var credentials = await db.AsPlatformAsync(tenant, tx => tx.QuerySingleOrDefaultAsync<HinovaCredenciaisRow>(
+            "select usuario_enc, senha_enc, token_sga_enc from hinova_credenciais where tenant_id = @tenant",
+            new { tenant }), ct);
+        if (credentials is null)
+            throw new ApiProblem(StatusCodes.Status503ServiceUnavailable, "hinova.nao_configurado");
+
+        string token;
+        try
+        {
+            token = await hinova.AutenticarAsync(cipher.Decrypt(credentials.UsuarioEnc),
+                cipher.Decrypt(credentials.SenhaEnc), cipher.Decrypt(credentials.TokenSgaEnc), ct);
+        }
+        catch (HinovaAuthException)
+        {
+            throw new ApiProblem(StatusCodes.Status503ServiceUnavailable, "hinova.credenciais_invalidas");
+        }
+
+        var phone = await hinova.BuscarContatoAssociadoAsync(token, associadoRef, ct);
+        if (phone is null)
+            throw new ApiProblem(StatusCodes.Status404NotFound, "carteira.contato_indisponivel");
+        return Results.Ok(new { telefone = phone });
     }
 
     private sealed class StatusCountRow

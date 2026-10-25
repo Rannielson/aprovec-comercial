@@ -60,10 +60,74 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
             return null;
         response.EnsureSuccessStatusCode();
 
-        var body = await response.Content.ReadFromJsonAsync<BuscarVoluntarioDto>(cancellationToken: ct);
-        return body is null ? null : new HinovaVoluntarioDetalhe(
-            body.CodigoVoluntario, body.Nome, body.Cpf,
-            (body.Cooperativas ?? []).Select(c => c.CodigoCooperativa).ToList());
+        using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        // The live SGA endpoint returns an array even when exactly one volunteer matches.
+        // Keep accepting a single object for compatibility, but never treat an unrelated
+        // result in a search array as the volunteer being requested.
+        var root = doc.RootElement;
+        JsonElement match;
+        if (root.ValueKind == JsonValueKind.Array)
+        {
+            match = root.EnumerateArray().FirstOrDefault(item => item.ValueKind == JsonValueKind.Object &&
+                (string.Equals(GetFlexString(item, "codigo_voluntario"), cpfOuCodigo, StringComparison.Ordinal) ||
+                 (cpfOuCodigo.Length == 11 && string.Equals(
+                     new string((GetFlexString(item, "cpf") ?? "").Where(char.IsDigit).ToArray()),
+                     cpfOuCodigo, StringComparison.Ordinal))));
+            if (match.ValueKind == JsonValueKind.Undefined) return null;
+        }
+        else if (root.ValueKind == JsonValueKind.Object)
+        {
+            match = root;
+        }
+        else
+        {
+            throw new JsonException("Formato inesperado na busca de voluntário da Hinova.");
+        }
+
+        var code = GetFlexString(match, "codigo_voluntario");
+        if (string.IsNullOrWhiteSpace(code))
+            throw new JsonException("Voluntário da Hinova sem código.");
+        var cooperativas = match.TryGetProperty("cooperativas", out var list) && list.ValueKind == JsonValueKind.Array
+            ? list.EnumerateArray().Select(c => GetFlexString(c, "codigo_cooperativa"))
+                .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c!).ToList()
+            : [];
+        return new HinovaVoluntarioDetalhe(code, GetFlexString(match, "nome") ?? "",
+            GetFlexString(match, "cpf") ?? "", cooperativas, GetFlexString(match, "email"));
+    }
+
+    public async Task<string?> BuscarContatoAssociadoAsync(string tokenUsuario, string codigoAssociado, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            $"listar/associado/contatos/{Uri.EscapeDataString(codigoAssociado)}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
+
+        using var response = await http.SendAsync(request, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+        response.EnsureSuccessStatusCode();
+
+        using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        var contacts = doc.RootElement.ValueKind == JsonValueKind.Array
+            ? doc.RootElement.EnumerateArray().ToArray()
+            : doc.RootElement.ValueKind == JsonValueKind.Object ? [doc.RootElement] : [];
+        foreach (var contact in contacts)
+        {
+            foreach (var field in new[] { "telefone_celular", "telefone_celular_aux", "celular", "telefone", "telefone_comercial" })
+            {
+                var normalized = NormalizeWhatsappNumber(GetFlexString(contact, field));
+                if (normalized is not null) return normalized;
+            }
+        }
+        return null;
+    }
+
+    private static string? NormalizeWhatsappNumber(string? value)
+    {
+        if (value is null) return null;
+        var digits = new string(value.Where(c => c is >= '0' and <= '9').ToArray());
+        if (digits.StartsWith("55", StringComparison.Ordinal) && digits.Length is 12 or 13)
+            return digits;
+        return digits.Length is 10 or 11 ? "55" + digits : null;
     }
 
     public async Task<string> CadastrarVoluntarioAsync(string tokenUsuario, CadastrarVoluntarioRequest request, CancellationToken ct)
@@ -108,19 +172,26 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
     {
         // Not `using` -- disposing an HttpRequestMessage disposes its Content too, which would
         // tear down the JsonContent's buffer before a caller/test can inspect what was sent.
+        var startField = filtro.FiltrarPorVencimento ? "data_vencimento_inicial" : "data_pagamento_inicial";
+        var endField = filtro.FiltrarPorVencimento ? "data_vencimento_final" : "data_pagamento_final";
+        var body = new Dictionary<string, object>
+        {
+            [startField] = filtro.DataPagamentoInicial.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+            [endField] = filtro.DataPagamentoFinal.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+            ["quantidade_por_pagina"] = filtro.QuantidadePorPagina,
+            ["inicio_paginacao"] = filtro.InicioPaginacao,
+        };
+        if (filtro.CodigoVoluntario is not null)
+            body["codigo_voluntario"] = new[] { filtro.CodigoVoluntario };
         var request = new HttpRequestMessage(HttpMethod.Post, "listar/boleto-associado/periodo")
         {
-            Content = JsonContent.Create(new
-            {
-                data_pagamento_inicial = filtro.DataPagamentoInicial.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
-                data_pagamento_final = filtro.DataPagamentoFinal.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
-                quantidade_por_pagina = filtro.QuantidadePorPagina,
-                inicio_paginacao = filtro.InicioPaginacao,
-            }),
+            Content = JsonContent.Create(body),
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
 
         using var response = await http.SendAsync(request, ct);
+        if (response.StatusCode == HttpStatusCode.NotAcceptable)
+            return new HinovaBoletoPagina(0, 0, filtro.InicioPaginacao, []);
         response.EnsureSuccessStatusCode();
 
         using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
@@ -136,7 +207,8 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
     {
         var veiculos = el.TryGetProperty("veiculos", out var veiculosEl) && veiculosEl.ValueKind == JsonValueKind.Array
             ? veiculosEl.EnumerateArray().Select(v => new HinovaVeiculoBoleto(
-                GetFlexString(v, "codigo_veiculo") ?? "", GetFlexString(v, "codigo_voluntario"), GetFlexString(v, "placa"))).ToList()
+                GetFlexString(v, "codigo_veiculo") ?? "", GetFlexString(v, "codigo_voluntario"), GetFlexString(v, "placa"),
+                ParseBrDate(GetFlexString(v, "data_inicio_contrato_veiculo")))).ToList()
             : [];
         return new HinovaBoleto(
             GetFlexString(el, "nosso_numero") ?? "",
@@ -146,7 +218,10 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
             GetFlexString(el, "nome_associado") ?? "",
             ParseBrDate(GetFlexString(el, "data_vencimento")),
             ParseBrDate(GetFlexString(el, "data_pagamento")),
-            veiculos);
+            veiculos,
+            GetFlexString(el, "codigo_tipo_boleto"),
+            GetFlexString(el, "tipo_boleto"),
+            GetFlexString(el, "situacao_boleto"));
     }
 
     // The real API returns data_pagamento/data_vencimento as ISO (yyyy-MM-dd), not the
@@ -156,10 +231,17 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
     // already shown it mixes formats/types across fields and endpoints.
     private static readonly string[] DateFormats = ["yyyy-MM-dd", "dd/MM/yyyy"];
 
-    private static DateOnly? ParseBrDate(string? value) =>
-        !string.IsNullOrWhiteSpace(value) && DateOnly.TryParseExact(value, DateFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
-            ? date
-            : null;
+    private static DateOnly? ParseBrDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var text = value.Trim();
+        // Some Hinova responses include a time/offset on an otherwise date-only field.
+        // Keep the calendar date as sent instead of shifting it across time zones.
+        if (text.Length > 10 && (text[10] == 'T' || text[10] == ' '))
+            text = text[..10];
+        return DateOnly.TryParseExact(text, DateFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            ? date : null;
+    }
 
     private static string? GetFlexString(JsonElement el, string prop)
     {
@@ -193,14 +275,6 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
         [property: JsonPropertyName("celular")] string? Celular,
         [property: JsonPropertyName("telefone_comercial")] string? TelefoneComercial,
         [property: JsonPropertyName("cooperativas")] List<CooperativaDto>? Cooperativas);
-
-    private sealed record BuscarVoluntarioDto(
-        [property: JsonPropertyName("codigo_voluntario")] string CodigoVoluntario,
-        [property: JsonPropertyName("nome")] string Nome,
-        [property: JsonPropertyName("cpf")] string Cpf,
-        [property: JsonPropertyName("cooperativas")] List<CooperativaCodigoDto>? Cooperativas);
-
-    private sealed record CooperativaCodigoDto([property: JsonPropertyName("codigo_cooperativa")] string CodigoCooperativa);
 
     private sealed record CadastrarResponseDto([property: JsonPropertyName("codigo_voluntario")] string CodigoVoluntario);
 }

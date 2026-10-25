@@ -4,10 +4,11 @@ import { ApiError, apiFetch, currentHost } from '@/lib/api';
 import { Icon } from '../../components/app-icon';
 import { formatDate } from '@/lib/format';
 import { messageFor } from '@/lib/errors';
-import type { HinovaCredenciaisStatus, HinovaMapeamento, HinovaVoluntario, Me, UserSummary } from '@/lib/types';
+import type { HinovaBoletoSync, HinovaCredenciaisStatus, HinovaMapeamento, HinovaVoluntario, Me, UserSummary } from '@/lib/types';
 import { BuscarConsultores } from './buscar-consultores';
 import { CredenciaisForm } from './credenciais-form';
 import { DesvincularForm, VincularForm } from './mapeamento-form';
+import { BoletoSyncCard } from './boleto-sync-card';
 
 export default async function IntegracoesPage({
   searchParams,
@@ -34,6 +35,12 @@ export default async function IntegracoesPage({
   const { query } = await searchParams;
   const status = await apiFetch<HinovaCredenciaisStatus>('/integracoes/hinova/credenciais');
   const mapeamentos = await apiFetch<HinovaMapeamento[]>('/integracoes/hinova/mapeamentos');
+  const jobs = status.configurado
+    ? await apiFetch<HinovaBoletoSync[]>('/integracoes/hinova/boletos/syncs')
+    : [];
+  const currentMonth = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Recife', year: 'numeric', month: '2-digit',
+  }).format(new Date());
 
   let voluntarios: HinovaVoluntario[] = [];
   let usuarios: UserSummary[] = [];
@@ -67,6 +74,8 @@ export default async function IntegracoesPage({
           </p>
           <CredenciaisForm />
         </section>
+
+        {status.configurado && <BoletoSyncCard initialJobs={jobs} currentMonth={currentMonth} />}
 
         {status.configurado && (
           <section className="card">

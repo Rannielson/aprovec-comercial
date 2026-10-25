@@ -27,4 +27,5 @@ public sealed record CommissionEntry(
     Guid? GroupId,
     decimal Rate,
     decimal Base,
-    decimal Amount);
+    decimal Amount,
+    int ContractSegment = 0);

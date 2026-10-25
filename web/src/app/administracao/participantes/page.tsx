@@ -47,6 +47,7 @@ export default async function ParticipantesPage({
   const canAdd = has('usuarios.convidar') && has('integracoes.gerenciar');
   const adicionarOpen = canAdd && adicionar === '1';
   const canEdit = has('usuarios.convidar');
+  const canManageAccess = canEdit && me.roleTemplates.includes('administrador');
 
   // GET /users has no server-side query param (confirmed against UserEndpoints.ListAsync), so the
   // name/e-mail filter below runs client-side, same as the brief calls for.
@@ -83,10 +84,13 @@ export default async function ParticipantesPage({
     try {
       voluntarios = await apiFetch<HinovaVoluntario[]>(
         `/integracoes/hinova/voluntarios?${new URLSearchParams({ query: searchQuery }).toString()}`,
+        { timeoutMs: 30_000 },
       );
     } catch (error) {
       searchError =
-        error instanceof ApiError
+        error instanceof ApiError && error.code === 'internal.error'
+          ? 'A Hinova demorou para responder. Tente buscar novamente em instantes.'
+          : error instanceof ApiError
           ? messageFor(error.code)
           : 'Não foi possível buscar voluntários na Hinova agora. Tente novamente em instantes.';
     }
@@ -204,9 +208,16 @@ export default async function ParticipantesPage({
                       <td>{u.supervisorId ? (userName.get(u.supervisorId) ?? '—') : 'Sem indicador'}</td>
                       {canEdit && (
                         <td>
-                          <a className="action-link" href={`/administracao/participantes/${u.id}/editar`}>
-                            Editar
-                          </a>
+                          <div className="inline">
+                            <a className="action-link" href={`/administracao/participantes/${u.id}/editar`}>
+                              Editar
+                            </a>
+                            {canManageAccess && (
+                              <a className="action-link" href={`/administracao/participantes/${u.id}/editar#acessos`}>
+                                Redefinir senha
+                              </a>
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>

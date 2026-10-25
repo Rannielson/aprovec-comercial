@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect } from 'react';
 import { Icon } from '../../components/app-icon';
-import { formatCompetencia, formatMoney, formatPercent, ruleLabel } from '@/lib/format';
+import { formatCompetencia, formatMoney, formatPercent } from '@/lib/format';
 import type { Participante } from './estrutura';
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
@@ -60,6 +60,10 @@ export function PersonDetail({
   // (e.g. p earned nothing this month), so the branch still says what it will pay once activity starts.
   const rate1 = nivel1?.rate ?? uplineRates.find((r) => r.level === 1)?.rate ?? null;
   const rate2 = nivel2?.rate ?? uplineRates.find((r) => r.level === 2)?.rate ?? null;
+  const levelResults = uplineRates.map(({ level, rate }) => {
+    const result = p.uplineRules.find((rule) => rule.level === level);
+    return { level, rate: result?.rate ?? rate, base: result?.base ?? 0, amount: result?.amount ?? 0 };
+  });
 
   return (
     <Overlay title="Composição da comissão" subtitle={`${p.name} · ${subtitle}`} onClose={onClose}>
@@ -79,15 +83,15 @@ export function PersonDetail({
           <dt>Comissão própria{p.rate !== null && !p.valuesHidden ? ` · ${formatPercent(p.rate)}` : ''}</dt>
           <dd>{p.valuesHidden ? '—' : money(p.ownAmount)}</dd>
         </div>
-        {p.uplineRules.map((rule) => (
+        {levelResults.map((rule) => (
           <Fragment key={rule.level}>
             <div>
-              <dt>Base da supervisão · {ruleLabel(rule)}</dt>
-              <dd>{money(rule.base)}</dd>
+              <dt>Base da supervisão · {rule.level}º nível</dt>
+              <dd>{p.valuesHidden ? '—' : money(rule.base)}</dd>
             </div>
             <div>
-              <dt>Comissão de supervisão · {ruleLabel(rule)} · {formatPercent(rule.rate)}</dt>
-              <dd>{money(rule.amount)}</dd>
+              <dt>Comissão de supervisão · {rule.level}º nível · {formatPercent(rule.rate)}</dt>
+              <dd>{p.valuesHidden ? '—' : money(rule.amount)}</dd>
             </div>
           </Fragment>
         ))}
@@ -114,8 +118,8 @@ export function PersonDetail({
                     <div>
                       <strong>{direto.name}</strong>
                       <small>
-                        {nivel1 !== null && !p.valuesHidden && !direto.valuesHidden
-                          ? `${formatMoney(direto.recebido)} × ${formatPercent(nivel1.rate)} = ${formatMoney(round2(direto.recebido * nivel1.rate))}`
+                        {rate1 !== null && !p.valuesHidden && !direto.valuesHidden
+                          ? `${formatMoney(direto.recebido)} × ${formatPercent(rate1)} = ${formatMoney(round2(direto.recebido * rate1))}`
                           : rate1 !== null
                             ? `1º nível · ${formatPercent(rate1)}`
                             : '1º nível'}
@@ -130,8 +134,8 @@ export function PersonDetail({
                           <div>
                             <strong>{neto.name}</strong>
                             <small>
-                              {nivel2 !== null && !p.valuesHidden && !neto.valuesHidden
-                                ? `${formatMoney(neto.recebido)} × ${formatPercent(nivel2.rate)} = ${formatMoney(round2(neto.recebido * nivel2.rate))}`
+                              {rate2 !== null && !p.valuesHidden && !neto.valuesHidden
+                                ? `${formatMoney(neto.recebido)} × ${formatPercent(rate2)} = ${formatMoney(round2(neto.recebido * rate2))}`
                                 : rate2 !== null
                                   ? `2º nível · ${formatPercent(rate2)}`
                                   : '2º nível'}

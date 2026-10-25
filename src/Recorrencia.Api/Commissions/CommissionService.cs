@@ -55,6 +55,20 @@ public static class CommissionService
         public decimal Rate { get; set; }
         public decimal Base { get; set; }
         public decimal Valor { get; set; }
+        public int ContractSegment { get; set; }
+    }
+
+    public sealed class VehicleContractRow
+    {
+        public Guid BoletoId { get; set; }
+        public int Ordem { get; set; }
+        public DateOnly? DataInicioContrato { get; set; }
+    }
+
+    public sealed class CutoffRow
+    {
+        public Guid UserId { get; set; }
+        public DateOnly CutoffDate { get; set; }
     }
 
     public static DateOnly ParseCompetencia(string value) =>
@@ -95,25 +109,54 @@ public static class CommissionService
             rules.Select(r => new CommissionRule(r.Id, ParseRuleType(r.Type), r.Rate, r.Level, r.GroupId)).ToList());
         var wanted = beneficiaries.ToHashSet();
 
-        return CommissionEngine.Calculate(
+        var entries = CommissionEngine.Calculate(
                 plan,
                 boletos.Select(b => new PaidBoleto(b.BoletoId, b.ParticipanteId, b.Valor)),
                 paths.Select(p => new HierarchyPath(p.AncestorId, p.DescendantId, p.Depth)),
                 members.Select(m => new GroupMembership(m.GroupId, m.UserId)))
             .Where(e => wanted.Contains(e.BeneficiaryId))
             .ToList();
+        return await ApplyCutoffsAsync(tx, competencia, beneficiaries, false, entries);
+    }
+
+    public static async Task<IReadOnlyList<CommissionEntry>> ApplyCutoffsAsync(Tx tx, DateOnly competencia,
+        Guid[] beneficiaries, bool unpaid, IReadOnlyList<CommissionEntry> entries)
+    {
+        var cutoffs = (await tx.QueryAsync<CutoffRow>(
+            "select user_id, cutoff_date from app.commission_source_cutoffs(@competencia, @beneficiaries)",
+            new { competencia, beneficiaries })).ToList();
+        if (cutoffs.Count == 0 || entries.All(e => e.RuleType != RuleType.Upline ||
+            cutoffs.All(c => c.UserId != e.BeneficiaryId)))
+            return entries;
+
+        var dates = await tx.QueryAsync<VehicleContractRow>(
+            """
+            select boleto_id, ordem, data_inicio_contrato
+              from app.commission_source_vehicle_dates(@competencia, @beneficiaries, @unpaid)
+            """,
+            new { competencia, beneficiaries, unpaid });
+        try
+        {
+            return CommissionContractCutoff.Apply(entries,
+                dates.Select(d => new BoletoVehicleContract(d.BoletoId, d.Ordem, d.DataInicioContrato)).ToList(),
+                cutoffs.Select(c => new ConsultantContractCutoff(c.UserId, c.CutoffDate)).ToList());
+        }
+        catch (InvalidOperationException e) when (e.Message.StartsWith("commission.contract_date_missing:", StringComparison.Ordinal))
+        {
+            throw new ApiProblem(StatusCodes.Status409Conflict, "commission.contract_date_missing");
+        }
     }
 
     private static async Task<IReadOnlyList<CommissionEntry>> LoadSnapshotAsync(Tx tx, Guid fechamentoId, Guid[] beneficiaries) =>
         (await tx.QueryAsync<SnapshotRow>(
             """
-            select beneficiario_id, boleto_id, origem_participante_id, rule_id, rule_type, level, group_id, rate, base, valor
+            select beneficiario_id, boleto_id, origem_participante_id, rule_id, rule_type, level, group_id, rate, base, valor, contract_segment
               from fechamento_detalhes
              where fechamento_id = @fechamentoId and beneficiario_id = any(@beneficiaries)
             """,
             new { fechamentoId, beneficiaries }))
         .Select(r => new CommissionEntry(r.BeneficiarioId, r.BoletoId, r.OrigemParticipanteId, r.RuleId,
-            ParseRuleType(r.RuleType), r.Level, r.GroupId, r.Rate, r.Base, r.Valor))
+            ParseRuleType(r.RuleType), r.Level, r.GroupId, r.Rate, r.Base, r.Valor, r.ContractSegment))
         .ToList();
 
     public static RuleType ParseRuleType(string value) => value switch

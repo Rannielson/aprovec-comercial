@@ -99,10 +99,13 @@ export default async function ArvorePage({
     try {
       voluntarios = await apiFetch<HinovaVoluntario[]>(
         `/integracoes/hinova/voluntarios?${new URLSearchParams({ query: searchQuery }).toString()}`,
+        { timeoutMs: 30_000 },
       );
     } catch (error) {
       searchError =
-        error instanceof ApiError
+        error instanceof ApiError && error.code === 'internal.error'
+          ? 'A Hinova demorou para responder. Tente buscar novamente em instantes.'
+          : error instanceof ApiError
           ? messageFor(error.code)
           : 'Não foi possível buscar voluntários na Hinova agora. Tente novamente em instantes.';
     }

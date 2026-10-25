@@ -1,6 +1,9 @@
 using Npgsql;
 using Recorrencia.Api.Authorization;
+using Recorrencia.Api.Commissions;
 using Recorrencia.Api.Infrastructure;
+using Recorrencia.Api.Integracoes;
+using Recorrencia.Api.Security;
 using Recorrencia.Api.Tenancy;
 using static Recorrencia.Api.Audit.Audit;
 
@@ -33,6 +36,18 @@ public static class PlanoCarreiraEndpoints
         public bool RecorrenciaAtiva { get; set; }
     }
 
+    private sealed class ParticipanteApuracaoRow
+    {
+        public string Name { get; set; } = "";
+        public Guid? PlanoCarreiraId { get; set; }
+        public string? CodigoVoluntario { get; set; }
+    }
+
+    public sealed record ApuracaoBonusResponse(string Competencia, Guid PlanoId, Guid ParticipanteId,
+        string ParticipanteNome, bool PlanoAtribuido, DateOnly DataLimitePagamento, DateOnly ApuradoAte,
+        bool Final, int PlacasPagas, decimal? ValorPorPlaca, decimal ValorBonus,
+        IReadOnlyList<BonusPlacasCalculator.PlacaPaga> Placas);
+
     private static readonly string[] Classificacoes = ["clt_interno", "clt_externo", "so_externo"];
     private static readonly string[] MetaMinimaFontes = ["contrato", "cadastro"];
     private static readonly string[] StatusValidos = ["ativo", "inativo"];
@@ -41,6 +56,9 @@ public static class PlanoCarreiraEndpoints
     public static void MapPlanoCarreiraEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/planos-carreira", ListarAsync).RequirePermission("regras_comissao.visualizar");
+        app.MapGet("/planos-carreira/{id:guid}/apuracao", ApurarBonusAsync)
+            .RequirePermission("regras_comissao.visualizar")
+            .RequirePermission("integracoes.gerenciar");
         app.MapPost("/planos-carreira", CriarAsync).RequirePermission("regras_comissao.editar");
         app.MapPut("/planos-carreira/{id:guid}", AtualizarAsync).RequirePermission("regras_comissao.editar");
         app.MapDelete("/planos-carreira/{id:guid}", RemoverAsync).RequirePermission("regras_comissao.editar");
@@ -76,6 +94,70 @@ public static class PlanoCarreiraEndpoints
             return list;
         }, ct);
         return Results.Ok(planos);
+    }
+
+    private static async Task<IResult> ApurarBonusAsync(Guid id, string competencia, Guid participanteId,
+        RequestContext request, Database db, IHinovaClient hinova, AesGcmCipher cipher, TimeProvider time,
+        CancellationToken ct)
+    {
+        var inicio = CommissionService.ParseCompetencia(competencia);
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        var (plano, participante, faixas) = await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            var plano = await tx.QuerySingleOrDefaultAsync<PlanoRow>(
+                "select id, name, status, classificacao, janela_apuracao_dias from planos_carreira where id = @id",
+                new { id }) ?? throw new ApiProblem(StatusCodes.Status404NotFound, "plano_carreira.not_found");
+            var participante = await tx.QuerySingleOrDefaultAsync<ParticipanteApuracaoRow>(
+                """
+                select u.name, u.plano_carreira_id, m.codigo_voluntario
+                  from users u left join hinova_voluntario_mapping m on m.user_id = u.id
+                 where u.id = @participanteId
+                """, new { participanteId })
+                ?? throw new ApiProblem(StatusCodes.Status404NotFound, "users.not_found");
+            var faixas = await tx.QueryAsync<PlanoCarreiraFaixaRow>(
+                "select quantidade_min, quantidade_max, valor_por_placa from planos_carreira_faixas_bonus where plano_carreira_id = @id",
+                new { id });
+            return (plano, participante, faixas);
+        }, ct);
+
+        if (participante.CodigoVoluntario is null)
+            throw new ApiProblem(StatusCodes.Status400BadRequest, "hinova.vinculo_not_found");
+
+        var limite = BonusPlacasCalculator.LimitePagamento(inicio, plano.JanelaApuracaoDias);
+        var hoje = DateOnly.FromDateTime(time.GetUtcNow().ToOffset(TimeSpan.FromHours(-3)).DateTime);
+        var ate = hoje < limite ? hoje : limite;
+        var boletos = new List<HinovaBoleto>();
+        if (ate >= inicio)
+        {
+            var token = await HinovaAuth.GetTokenUsuarioAsync(db, tenant, actor, cipher, hinova, ct);
+            for (var blocoInicio = inicio; blocoInicio <= ate; blocoInicio = blocoInicio.AddDays(31))
+            {
+                var blocoFim = blocoInicio.AddDays(30);
+                if (blocoFim > ate) blocoFim = ate;
+                for (var pagina = 0; ; pagina++)
+                {
+                    var resultado = await hinova.ListarBoletosPeriodoAsync(token,
+                        new HinovaBoletoPeriodoFiltro(blocoInicio, blocoFim, 1000, pagina, participante.CodigoVoluntario), ct);
+                    boletos.AddRange(resultado.Boletos);
+                    if (resultado.Boletos.Count == 0 || pagina + 1 >= resultado.NumeroPaginas)
+                        break;
+                }
+            }
+        }
+
+        var calculo = BonusPlacasCalculator.Calcular(inicio, plano.JanelaApuracaoDias, participante.CodigoVoluntario,
+            faixas.Select(f => new BonusPlacasCalculator.Faixa(f.QuantidadeMin, f.QuantidadeMax, f.ValorPorPlaca)).ToList(), boletos);
+        return Results.Ok(new ApuracaoBonusResponse(competencia, id, participanteId, participante.Name,
+            participante.PlanoCarreiraId == id, limite, ate, hoje >= limite, calculo.Quantidade,
+            calculo.ValorPorPlaca, calculo.Valor, calculo.Placas));
+    }
+
+    private sealed class PlanoCarreiraFaixaRow
+    {
+        public int QuantidadeMin { get; set; }
+        public int? QuantidadeMax { get; set; }
+        public decimal ValorPorPlaca { get; set; }
     }
 
     private static (string Name, string Classificacao, FaixaBonusInput[] Faixas, RegraRecorrenciaInput[] Regras) Validate(PlanoCarreiraRequest body)

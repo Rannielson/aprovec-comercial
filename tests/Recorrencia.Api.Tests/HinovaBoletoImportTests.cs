@@ -7,6 +7,10 @@ namespace Recorrencia.Api.Tests;
 public class HinovaBoletoImportTests(ApiFixture api)
 {
     public sealed record ImportarBoletosResponseDto(int TotalBoletos, int Importados, int SemVinculo, int ConflitoMultiploVendedor, int NaoPago);
+    public sealed record CommissionEntryDto(Guid BoletoId);
+    public sealed record SyncJobDto(Guid Id, DateOnly Competencia, string Status, string Fase,
+        int? TotalBoletos, int PagamentosConsultados, int PagamentosProcessados, int? Importados,
+        int? VencimentoRetornados, int VencimentosConsultados, int VencimentosProcessados, string? ErrorCode);
 
     private async Task<ApiClient> LoginAsAdminAsync(SeededTenant s)
     {
@@ -29,7 +33,8 @@ public class HinovaBoletoImportTests(ApiFixture api)
         nome_associado = "Associado Teste",
         data_vencimento = "05/09/2026",
         data_pagamento = dataPagamento,
-        veiculos = veiculos.Select(v => new { codigo_veiculo = "1", codigo_voluntario = v.codigoVoluntario, placa = v.placa }).ToList(),
+        veiculos = veiculos.Select(v => new { codigo_veiculo = "1", codigo_voluntario = v.codigoVoluntario, placa = v.placa,
+            data_inicio_contrato_veiculo = "2026-09-30" }).ToList(),
     };
 
     // FakeHinovaClient.BoletosPaginas is a singleton shared by every test in this collection --
@@ -51,6 +56,218 @@ public class HinovaBoletoImportTests(ApiFixture api)
         var client = new HinovaClient(http);
         var page = client.ListarBoletosPeriodoAsync("t", new HinovaBoletoPeriodoFiltro(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), 100, 0), CancellationToken.None).GetAwaiter().GetResult();
         return page.Boletos[0];
+    }
+
+    [Fact]
+    public async Task Admin_can_sync_selected_payment_month_in_background_and_repeat_without_duplicates()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsAdminAsync(s);
+        await ConfigureCredentialsAsync(admin);
+        await ApiClient.ExpectAsync(await admin.PostAsync("/integracoes/hinova/mapeamentos",
+            new { userId = s.Joao, codigoVoluntario = "101", nomeHinova = "Consultor", cpfHinova = "11122233344" }),
+            HttpStatusCode.Created);
+        SetPage(api, Boleto("sync-2026-10-001", 220m, "10/10/2026", ("101", "ABC1D23")));
+
+        async Task<SyncJobDto> CompletedAsync()
+        {
+            var startResponse = await admin.PostAsync("/integracoes/hinova/boletos/syncs",
+                new { competencia = "2026-10" });
+            await ApiClient.ExpectAsync(startResponse, HttpStatusCode.Accepted);
+            var started = (await startResponse.Content.ReadFromJsonAsync<SyncJobDto>(ApiClient.Json))!;
+            for (var attempt = 0; attempt < 80; attempt++)
+            {
+                var job = await admin.GetJsonAsync<SyncJobDto>($"/integracoes/hinova/boletos/syncs/{started.Id}");
+                if (job.Status == "completed") return job;
+                Assert.NotEqual("failed", job.Status);
+                await Task.Delay(100);
+            }
+            throw new TimeoutException("A sincronização não terminou no prazo do teste.");
+        }
+
+        var first = await CompletedAsync();
+        Assert.Equal(new DateOnly(2026, 10, 1), first.Competencia);
+        Assert.Equal("concluido", first.Fase);
+        Assert.Equal((1, 1, 1), (first.TotalBoletos, first.PagamentosConsultados, first.PagamentosProcessados));
+        Assert.Equal((1, 1, 1), (first.VencimentoRetornados, first.VencimentosConsultados, first.VencimentosProcessados));
+        Assert.True(api.Hinova.UltimoFiltroBoletos?.FiltrarPorVencimento);
+        Assert.Equal(1, first.Importados);
+        var again = await CompletedAsync();
+        Assert.NotEqual(first.Id, again.Id);
+        Assert.Equal(1, again.Importados);
+        Assert.Equal(1, await api.SqlScalarAsync<int>(
+            "select count(*)::int from boletos where tenant_id = @tenant and hinova_nosso_numero = 'sync-2026-10-001'",
+            new { tenant = s.TenantId }));
+    }
+
+    [Fact]
+    public async Task Open_wallet_sync_skips_payments_and_retries_a_transient_Hinova_failure()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsAdminAsync(s);
+        await ConfigureCredentialsAsync(admin);
+        await ApiClient.ExpectAsync(await admin.PostAsync("/integracoes/hinova/mapeamentos",
+            new { userId = s.Joao, codigoVoluntario = "101", nomeHinova = "Consultor", cpfHinova = "11122233344" }),
+            HttpStatusCode.Created);
+        var open = ParseViaClient(Boleto("open-only", 190m, null, ("101", "ABC1D25")))
+            with { Vencimento = new DateOnly(2026, 10, 10) };
+        api.Hinova.BoletosPaginas.Clear();
+        api.Hinova.BoletosPaginas.Add(new HinovaBoletoPagina(1, 1, 0, [open]));
+        var calls = 0;
+        api.Hinova.BeforeListBoletos = (filter, _) =>
+        {
+            Assert.True(filter.FiltrarPorVencimento);
+            if (++calls == 1) throw new HttpRequestException("transient", null, HttpStatusCode.ServiceUnavailable);
+            return Task.CompletedTask;
+        };
+        try
+        {
+            var response = await admin.PostAsync("/integracoes/hinova/boletos/syncs",
+                new { competencia = "2026-10", somenteVencimentos = true });
+            await ApiClient.ExpectAsync(response, HttpStatusCode.Accepted);
+            var started = (await response.Content.ReadFromJsonAsync<SyncJobDto>(ApiClient.Json))!;
+            SyncJobDto? job = null;
+            for (var attempt = 0; attempt < 120; attempt++)
+            {
+                job = await admin.GetJsonAsync<SyncJobDto>($"/integracoes/hinova/boletos/syncs/{started.Id}");
+                if (job.Status is "completed" or "failed") break;
+                await Task.Delay(100);
+            }
+            Assert.Equal("completed", job?.Status);
+            Assert.Equal(2, calls);
+            Assert.Equal(0, job?.Importados);
+            Assert.Equal(1, job?.VencimentoRetornados);
+            Assert.Equal(1, await api.SqlScalarAsync<int>(
+                "select count(*)::int from boletos where tenant_id=@tenant and hinova_nosso_numero='open-only' and pago_em is null",
+                new { tenant = s.TenantId }));
+        }
+        finally { api.Hinova.BeforeListBoletos = null; }
+    }
+
+    [Fact]
+    public async Task Daily_sync_imports_payments_before_open_wallets_and_revisits_previous_open_months()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsAdminAsync(s);
+        await ConfigureCredentialsAsync(admin);
+        await ApiClient.ExpectAsync(await admin.PostAsync("/integracoes/hinova/mapeamentos",
+            new { userId = s.Joao, codigoVoluntario = "101", nomeHinova = "Consultor", cpfHinova = "11122233344" }),
+            HttpStatusCode.Created);
+        var old = ParseViaClient(Boleto("daily-old", 180m, null, ("101", "ABC1D23")));
+        api.Hinova.BoletosPaginas.Clear();
+        api.Hinova.BoletosPaginas.Add(new HinovaBoletoPagina(1, 1, 0, [old]));
+        await admin.PostJsonAsync<ImportarBoletosResponseDto>("/integracoes/hinova/boletos/importar", new { competencia = "2026-09" });
+        var paid = ParseViaClient(Boleto("daily-paid", 220m, "20/10/2026", ("101", "ABC1D24")))
+            with { Vencimento = new DateOnly(2026, 10, 10) };
+        var open = ParseViaClient(Boleto("daily-open", 190m, null, ("101", "ABC1D25")))
+            with { Vencimento = new DateOnly(2026, 10, 10) };
+        var months = new HashSet<DateOnly>();
+        api.Hinova.BeforeListBoletos = async (filter, _) =>
+        {
+            IReadOnlyList<HinovaBoleto> rows;
+            if (!filter.FiltrarPorVencimento) rows = [paid];
+            else
+            {
+                Assert.Equal(1, await api.SqlScalarAsync<int>(
+                    "select count(*)::int from boletos where tenant_id=@tenant and hinova_nosso_numero='daily-paid' and status='recebido'",
+                    new { tenant = s.TenantId }));
+                months.Add(filter.DataPagamentoInicial);
+                rows = filter.DataPagamentoInicial.Month == 9
+                    ? [old with { DataPagamento = new DateOnly(2026, 10, 1) }]
+                    : [paid with { DataPagamento = null }, open];
+            }
+            api.Hinova.BoletosPaginas.Clear();
+            api.Hinova.BoletosPaginas.Add(new HinovaBoletoPagina(1, rows.Count, 0, rows));
+        };
+        var id = Guid.NewGuid();
+        try
+        {
+            await api.SqlAsync(
+                """
+                insert into hinova_boleto_sync_jobs
+                    (id,tenant_id,requested_by,competencia,pagamento_inicio,pagamento_fim,agendado_para)
+                values (@id,@tenant,@actor,'2026-10-01','2026-10-18','2026-10-23','2026-10-23')
+                """, new { id, tenant = s.TenantId, actor = s.Admin });
+            SyncJobDto? job = null;
+            for (var attempt = 0; attempt < 100; attempt++)
+            {
+                job = await admin.GetJsonAsync<SyncJobDto>($"/integracoes/hinova/boletos/syncs/{id}");
+                if (job.Status is "completed" or "failed") break;
+                await Task.Delay(100);
+            }
+            Assert.Equal("completed", job?.Status);
+            Assert.Equal(3, job?.VencimentoRetornados);
+            Assert.True(months.SetEquals([new DateOnly(2026, 9, 1), new DateOnly(2026, 10, 1)]));
+            Assert.Equal(2, await api.SqlScalarAsync<int>(
+                "select count(*)::int from boletos where tenant_id=@tenant and status='recebido' and hinova_nosso_numero in ('daily-paid','daily-old')",
+                new { tenant = s.TenantId }));
+            Assert.Equal(1, await api.SqlScalarAsync<int>(
+                "select count(*)::int from boletos where tenant_id=@tenant and pago_em is null and hinova_nosso_numero='daily-open'",
+                new { tenant = s.TenantId }));
+            Assert.Equal(3, await api.SqlScalarAsync<int>(
+                "select count(*)::int from boletos where tenant_id=@tenant and hinova_nosso_numero like 'daily-%'",
+                new { tenant = s.TenantId }));
+        }
+        finally { api.Hinova.BeforeListBoletos = null; }
+    }
+
+    [Fact]
+    public async Task Sync_exposes_partial_progress_before_the_next_Hinova_stage_finishes()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsAdminAsync(s);
+        await ConfigureCredentialsAsync(admin);
+        await ApiClient.ExpectAsync(await admin.PostAsync("/integracoes/hinova/mapeamentos",
+            new { userId = s.Joao, codigoVoluntario = "101", nomeHinova = "Consultor", cpfHinova = "11122233344" }),
+            HttpStatusCode.Created);
+        api.Hinova.BoletosPaginas.Clear();
+        api.Hinova.BoletosPaginas.Add(new HinovaBoletoPagina(2, 2, 0,
+            [ParseViaClient(Boleto("sync-progress-001", 180m, "10/10/2026", ("101", "ABC1D23")))]));
+        api.Hinova.BoletosPaginas.Add(new HinovaBoletoPagina(2, 2, 1,
+            [ParseViaClient(Boleto("sync-progress-002", 180m, "11/10/2026", ("101", "ABC1D24")))]));
+        var releaseSecondPage = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.Hinova.BeforeListBoletos = (filter, token) => filter.InicioPaginacao == 1
+            ? releaseSecondPage.Task.WaitAsync(token)
+            : Task.CompletedTask;
+        Guid? jobId = null;
+
+        try
+        {
+            var response = await admin.PostAsync("/integracoes/hinova/boletos/syncs", new { competencia = "2026-10" });
+            await ApiClient.ExpectAsync(response, HttpStatusCode.Accepted);
+            var started = (await response.Content.ReadFromJsonAsync<SyncJobDto>(ApiClient.Json))!;
+            jobId = started.Id;
+            SyncJobDto? partial = null;
+            for (var attempt = 0; attempt < 100; attempt++)
+            {
+                var job = await admin.GetJsonAsync<SyncJobDto>($"/integracoes/hinova/boletos/syncs/{started.Id}");
+                if (job.Fase == "buscando_pagamentos" && job.PagamentosConsultados == 1)
+                {
+                    partial = job;
+                    break;
+                }
+                Assert.NotEqual("failed", job.Status);
+                await Task.Delay(100);
+            }
+            Assert.NotNull(partial);
+            Assert.Equal("running", partial.Status);
+            Assert.Equal(0, partial.PagamentosProcessados);
+            Assert.Equal(2, partial.TotalBoletos);
+        }
+        finally
+        {
+            releaseSecondPage.TrySetResult();
+            if (jobId is { } id)
+            {
+                for (var attempt = 0; attempt < 100; attempt++)
+                {
+                    var job = await admin.GetJsonAsync<SyncJobDto>($"/integracoes/hinova/boletos/syncs/{id}");
+                    if (job.Status is "completed" or "failed") break;
+                    await Task.Delay(100);
+                }
+            }
+            api.Hinova.BeforeListBoletos = null;
+        }
     }
 
     private sealed class CapturingHandler(string json) : HttpMessageHandler
@@ -125,6 +342,13 @@ public class HinovaBoletoImportTests(ApiFixture api)
         var valor = await api.SqlScalarAsync<decimal>(
             "select valor from boletos where tenant_id = @tenant and hinova_nosso_numero = '777001'", new { tenant = s.TenantId });
         Assert.Equal(200.00m, valor);
+        var contrato = await api.SqlScalarAsync<DateOnly>(
+            """
+            select v.data_inicio_contrato from boleto_veiculos v
+              join boletos b on b.id = v.boleto_id
+             where b.tenant_id = @tenant and b.hinova_nosso_numero = '777001'
+            """, new { tenant = s.TenantId });
+        Assert.Equal(new DateOnly(2026, 9, 30), contrato);
 
         // Re-run with an updated payment amount for the same nosso_numero -- must update the
         // existing row (still exactly one), never insert a second one.
@@ -181,6 +405,66 @@ public class HinovaBoletoImportTests(ApiFixture api)
     }
 
     [Fact]
+    public async Task Rerun_holds_an_existing_payment_when_a_new_mapping_makes_its_vendor_ambiguous()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsAdminAsync(s);
+        await ConfigureCredentialsAsync(admin);
+        await ApiClient.ExpectAsync(
+            await admin.PostAsync("/integracoes/hinova/mapeamentos", new { userId = s.Joao, codigoVoluntario = "101", nomeHinova = "Ana Paula Ferreira", cpfHinova = "11122233344" }),
+            HttpStatusCode.Created);
+        SetPage(api, Boleto("777003-rerun", 300.00m, "10/09/2026", ("101", "AAA1A11"), ("102", "BBB2B22")));
+
+        var first = await admin.PostJsonAsync<ImportarBoletosResponseDto>("/integracoes/hinova/boletos/importar", new { competencia = "2026-09" });
+        Assert.Equal(1, first.Importados);
+        var boletoId = await api.SqlScalarAsync<Guid>(
+            "select id from boletos where tenant_id = @tenant and hinova_nosso_numero = '777003-rerun'", new { tenant = s.TenantId });
+
+        await ApiClient.ExpectAsync(
+            await admin.PostAsync("/integracoes/hinova/mapeamentos", new { userId = s.Maria, codigoVoluntario = "102", nomeHinova = "Bruno Costa Lima", cpfHinova = "22233344455" }),
+            HttpStatusCode.Created);
+        var conflict = await admin.PostJsonAsync<ImportarBoletosResponseDto>("/integracoes/hinova/boletos/importar", new { competencia = "2026-09" });
+        Assert.Equal((0, 1), (conflict.Importados, conflict.ConflitoMultiploVendedor));
+        Assert.Equal("multiple_mapped_volunteers", await api.SqlScalarAsync<string>(
+            "select commission_hold_reason from boletos where id = @boletoId", new { boletoId }));
+        var heldEntries = await admin.GetJsonAsync<List<CommissionEntryDto>>($"/commissions/2026-09/entries?beneficiaryId={s.Joao}");
+        Assert.DoesNotContain(heldEntries, e => e.BoletoId == boletoId);
+
+        SetPage(api, Boleto("777003-rerun", 300.00m, "10/09/2026", ("101", "AAA1A11")));
+        var resolved = await admin.PostJsonAsync<ImportarBoletosResponseDto>("/integracoes/hinova/boletos/importar", new { competencia = "2026-09" });
+        Assert.Equal(1, resolved.Importados);
+        Assert.Null(await api.SqlScalarAsync<string?>(
+            "select commission_hold_reason from boletos where id = @boletoId", new { boletoId }));
+        var activeEntries = await admin.GetJsonAsync<List<CommissionEntryDto>>($"/commissions/2026-09/entries?beneficiaryId={s.Joao}");
+        Assert.Contains(activeEntries, e => e.BoletoId == boletoId);
+    }
+
+    [Fact]
+    public async Task Rerun_preserves_a_historical_payment_when_its_volunteer_has_no_current_mapping()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsAdminAsync(s);
+        await ConfigureCredentialsAsync(admin);
+        await ApiClient.ExpectAsync(
+            await admin.PostAsync("/integracoes/hinova/mapeamentos", new { userId = s.Joao, codigoVoluntario = "101", nomeHinova = "Ana Paula Ferreira", cpfHinova = "11122233344" }),
+            HttpStatusCode.Created);
+        SetPage(api, Boleto("777004-rerun", 300.00m, "10/09/2026", ("101", "AAA1A11")));
+        Assert.Equal(1, (await admin.PostJsonAsync<ImportarBoletosResponseDto>(
+            "/integracoes/hinova/boletos/importar", new { competencia = "2026-09" })).Importados);
+        var boletoId = await api.SqlScalarAsync<Guid>(
+            "select id from boletos where tenant_id = @tenant and hinova_nosso_numero = '777004-rerun'", new { tenant = s.TenantId });
+
+        await ApiClient.ExpectAsync(await admin.DeleteAsync($"/integracoes/hinova/mapeamentos/{s.Joao}"), HttpStatusCode.NoContent);
+        var rerun = await admin.PostJsonAsync<ImportarBoletosResponseDto>(
+            "/integracoes/hinova/boletos/importar", new { competencia = "2026-09" });
+        Assert.Equal(1, rerun.SemVinculo);
+        Assert.Null(await api.SqlScalarAsync<string?>(
+            "select commission_hold_reason from boletos where id = @boletoId", new { boletoId }));
+        var entries = await admin.GetJsonAsync<List<CommissionEntryDto>>($"/commissions/2026-09/entries?beneficiaryId={s.Joao}");
+        Assert.Contains(entries, e => e.BoletoId == boletoId);
+    }
+
+    [Fact]
     public async Task Multiple_veiculos_for_the_same_mapped_vendor_import_the_payment_once_not_per_vehicle()
     {
         var s = await api.SeedAsync();
@@ -200,12 +484,12 @@ public class HinovaBoletoImportTests(ApiFixture api)
     }
 
     [Fact]
-    public async Task A_boleto_with_no_data_pagamento_is_counted_as_naoPago_even_when_valor_pagamento_mirrors_valor_boleto()
+    public async Task A_boleto_with_no_data_pagamento_is_imported_as_unpaid_even_when_valor_pagamento_mirrors_valor_boleto()
     {
         // Confirmed against the real API: an unpaid boleto's valor_pagamento often just echoes
         // valor_boleto rather than coming back as 0.00 -- data_pagamento is the only reliable
         // "was this actually paid" signal, so a boleto with a real-looking valor_pagamento but no
-        // data_pagamento must still be excluded from commission-relevant import.
+        // data_pagamento must not generate paid commission, but is retained for the loss dashboard.
         var s = await api.SeedAsync();
         var admin = await LoginAsAdminAsync(s);
         await ConfigureCredentialsAsync(admin);
@@ -219,7 +503,10 @@ public class HinovaBoletoImportTests(ApiFixture api)
         Assert.Equal((1, 0, 0, 0, 1), (result.TotalBoletos, result.Importados, result.SemVinculo, result.ConflitoMultiploVendedor, result.NaoPago));
         var count = await api.SqlScalarAsync<int>(
             "select count(*)::int from boletos where tenant_id = @tenant and hinova_nosso_numero = '777007'", new { tenant = s.TenantId });
-        Assert.Equal(0, count);
+        Assert.Equal(1, count);
+        var status = await api.SqlScalarAsync<string>(
+            "select status from boletos where tenant_id = @tenant and hinova_nosso_numero = '777007'", new { tenant = s.TenantId });
+        Assert.Equal("atraso", status);
     }
 
     [Fact]
@@ -238,6 +525,6 @@ public class HinovaBoletoImportTests(ApiFixture api)
         var result = await admin.PostJsonAsync<ImportarBoletosResponseDto>("/integracoes/hinova/boletos/importar", new { competencia = "2026-09" });
 
         Assert.Equal((2, 2, 0, 0, 0), (result.TotalBoletos, result.Importados, result.SemVinculo, result.ConflitoMultiploVendedor, result.NaoPago));
-        Assert.Equal(100, api.Hinova.UltimoFiltroBoletos!.QuantidadePorPagina);
+        Assert.Equal(500, api.Hinova.UltimoFiltroBoletos!.QuantidadePorPagina);
     }
 }

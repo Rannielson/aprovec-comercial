@@ -3,7 +3,7 @@ import { cookies, headers } from 'next/headers';
 import { buildApiHeaders } from './api-headers';
 import { env } from './env';
 import { parseHost, type HostInfo } from './host';
-import { SESSION_COOKIE } from './session';
+import { PLATFORM_SESSION_COOKIE, SESSION_COOKIE } from './session';
 
 export class ApiError extends Error {
   constructor(
@@ -19,6 +19,7 @@ type ApiRequest = {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: unknown;
   token?: string | null;
+  timeoutMs?: number;
 };
 
 export async function currentHost(): Promise<HostInfo> {
@@ -32,11 +33,23 @@ export async function currentHost(): Promise<HostInfo> {
 }
 
 export async function apiFetch<T = void>(path: string, request: ApiRequest = {}): Promise<T> {
-  const incoming = await headers();
   const host = await currentHost();
   if (host.kind === 'unknown') throw new ApiError(404, 'tenant.not_found');
+  return fetchWithHost<T>(path, request, host, SESSION_COOKIE);
+}
 
-  const token = request.token === undefined ? (await cookies()).get(SESSION_COOKIE)?.value : (request.token ?? undefined);
+export async function platformApiFetch<T = void>(path: string, request: ApiRequest = {}): Promise<T> {
+  const host = await currentHost();
+  if (host.kind !== 'platform' && !(host.kind === 'tenant' && host.slug === 'sales')) {
+    throw new ApiError(404, 'tenant.not_found');
+  }
+  return fetchWithHost<T>(path, request, { kind: 'platform' },
+    host.kind === 'platform' ? SESSION_COOKIE : PLATFORM_SESSION_COOKIE);
+}
+
+async function fetchWithHost<T>(path: string, request: ApiRequest, host: HostInfo, sessionCookie: string): Promise<T> {
+  const incoming = await headers();
+  const token = request.token === undefined ? (await cookies()).get(sessionCookie)?.value : (request.token ?? undefined);
 
   let response: Response;
   try {
@@ -52,7 +65,7 @@ export async function apiFetch<T = void>(path: string, request: ApiRequest = {})
       }),
       body: request.body === undefined ? undefined : JSON.stringify(request.body),
       cache: 'no-store',
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(request.timeoutMs ?? 10_000),
     });
   } catch {
     // The API is unreachable, the connection failed, or the request timed out — none of

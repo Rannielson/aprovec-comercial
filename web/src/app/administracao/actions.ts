@@ -1,9 +1,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { ApiError, apiFetch } from '@/lib/api';
+import { ApiError, apiFetch, currentHost } from '@/lib/api';
 import { messageFor } from '@/lib/errors';
 import type { FormState } from '@/lib/form-state';
+import type { Me } from '@/lib/types';
 
 type RoleSummary = { id: string; sourceTemplateKey: string | null };
 
@@ -52,7 +53,6 @@ export async function editarParticipante(_: FormState, formData: FormData): Prom
   const name = String(formData.get('name') ?? '');
   const email = String(formData.get('email') ?? '');
   const hasMapeamento = formData.get('hasMapeamento') === '1';
-  const password = String(formData.get('password') ?? '');
 
   try {
     await apiFetch(`/users/${id}`, { method: 'PUT', body: { name, email } });
@@ -65,9 +65,6 @@ export async function editarParticipante(_: FormState, formData: FormData): Prom
           cpfHinova: String(formData.get('cpfHinova') ?? ''),
         },
       });
-    }
-    if (password.length > 0) {
-      await apiFetch(`/users/${id}/password`, { method: 'PUT', body: { password } });
     }
     const hasPlanos = formData.get('hasPlanos') === '1';
     if (hasPlanos) {
@@ -83,4 +80,47 @@ export async function editarParticipante(_: FormState, formData: FormData): Prom
   }
   revalidatePath('/administracao/participantes');
   return { message: 'Participante atualizado.' };
+}
+
+export async function redefinirSenhaParticipante(_: FormState, formData: FormData): Promise<FormState> {
+  const host = await currentHost();
+  if (host.kind !== 'tenant') return { error: 'Acesso não autorizado.' };
+
+  const me = await apiFetch<Me>('/me');
+  if (!me.roleTemplates.includes('administrador') || !me.permissions.some((p) => p.key === 'usuarios.convidar')) {
+    return { error: 'Seu perfil não permite redefinir senhas.' };
+  }
+
+  const id = String(formData.get('id') ?? '');
+  const password = String(formData.get('password') ?? '');
+  const confirmation = String(formData.get('confirmation') ?? '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: 'Participante inválido.' };
+  if (password.length < 10 || password.length > 128) return { error: 'A senha precisa ter entre 10 e 128 caracteres.' };
+  if (password !== confirmation) return { error: 'As senhas não coincidem.' };
+
+  try {
+    await apiFetch(`/users/${id}/password`, { method: 'PUT', body: { password } });
+  } catch (error) {
+    if (error instanceof ApiError) return { error: messageFor(error.code) };
+    throw error;
+  }
+  return { message: 'Senha redefinida com sucesso.' };
+}
+
+export async function salvarCorteContrato(_: FormState, formData: FormData): Promise<FormState> {
+  const id = String(formData.get('id') ?? '');
+  const rawDate = String(formData.get('cutoffDate') ?? '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: 'Participante inválido.' };
+  if (rawDate && !/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) return { error: 'Informe uma data de corte válida.' };
+
+  try {
+    await apiFetch(`/commission-contract-cutoffs/${id}`, {
+      method: 'PUT', body: { cutoffDate: rawDate || null },
+    });
+  } catch (error) {
+    if (error instanceof ApiError) return { error: messageFor(error.code) };
+    throw error;
+  }
+  revalidatePath(`/administracao/participantes/${id}/editar`);
+  return { message: rawDate ? 'Data de corte salva.' : 'Data de corte removida.' };
 }

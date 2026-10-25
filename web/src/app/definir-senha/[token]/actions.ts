@@ -22,5 +22,5 @@ export async function setPassword(_: FormState, formData: FormData): Promise<For
     if (error instanceof ApiError) return { error: messageFor(error.code) };
     throw error;
   }
-  redirect('/');
+  redirect('/fechamento');
 }

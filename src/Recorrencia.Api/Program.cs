@@ -67,6 +67,8 @@ builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<LoginThrottle>();
 
 builder.Services.AddSingleton<AesGcmCipher>();
+builder.Services.AddHostedService<HinovaBoletoSyncWorker>();
+builder.Services.AddHostedService<SolicitacaoCadastroWorker>();
 if (builder.Configuration.GetValue<bool>("Hinova:UseFake"))
 {
     builder.Services.AddSingleton<IHinovaClient, DevFakeHinovaClient>();
@@ -74,7 +76,10 @@ if (builder.Configuration.GetValue<bool>("Hinova:UseFake"))
 else
 {
     builder.Services.AddHttpClient<IHinovaClient, HinovaClient>(c =>
-        c.BaseAddress = new Uri("https://api.hinova.com.br/api/sga/v2/"));
+    {
+        c.BaseAddress = new Uri("https://api.hinova.com.br/api/sga/v2/");
+        c.Timeout = TimeSpan.FromMinutes(3);
+    });
 }
 
 builder.Services.AddMemoryCache();
@@ -119,11 +124,14 @@ app.MapUserEndpoints();
 app.MapRoleEndpoints();
 app.MapCommissionPlanEndpoints();
 app.MapCommissionEndpoints();
+app.MapCommissionCutoffEndpoints();
 app.MapPlanoCarreiraEndpoints();
 app.MapFechamentoEndpoints();
+app.MapPayoutEndpoints();
 app.MapCarteiraEndpoints();
 app.MapPlatformEndpoints();
 app.MapHinovaEndpoints();
+app.MapHinovaBoletoSyncEndpoints();
 app.MapConviteLinkEndpoints();
 app.MapSolicitacaoCadastroEndpoints();
 

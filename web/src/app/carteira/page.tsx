@@ -1,8 +1,10 @@
 import { notFound } from 'next/navigation';
 import { AppShell } from '../app-shell';
+import { AutoRefresh } from '../components/auto-refresh';
+import { LiveFilterInput } from '../components/live-filter-input';
 import { apiFetch, currentHost } from '@/lib/api';
 import { Icon } from '../components/app-icon';
-import { boletoStatusBadgeClass, boletoStatusLabels, formatDate, formatMoney } from '@/lib/format';
+import { formatDate, formatMoney } from '@/lib/format';
 import type { Me, Wallet } from '@/lib/types';
 
 const STATUS_TABS: { value: string; label: string }[] = [
@@ -15,7 +17,7 @@ const STATUS_TABS: { value: string; label: string }[] = [
 export default async function CarteiraPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; query?: string; page?: string }>;
+  searchParams: Promise<{ status?: string; query?: string; page?: string; aviso?: string }>;
 }) {
   const host = await currentHost();
   if (host.kind !== 'tenant') notFound();
@@ -34,7 +36,7 @@ export default async function CarteiraPage({
     );
   }
 
-  const { status, query, page } = await searchParams;
+  const { status, query, page, aviso } = await searchParams;
   const activeStatus = status && status !== 'todos' ? status : 'todos';
   const currentPage = Math.max(1, Number(page) || 1);
 
@@ -59,12 +61,17 @@ export default async function CarteiraPage({
 
   return (
     <AppShell me={me} active="wallet">
+      <AutoRefresh />
       <div className="shell">
         <div className="page-heading">
           <p className="eyebrow">Painel do vendedor</p>
           <h1>Minha carteira</h1>
-          <p className="muted">Os pagamentos e a saúde da base, boleto por boleto.</p>
+          <p className="muted">Consulte os valores, vencimentos e fale com seus associados.</p>
         </div>
+
+        {aviso === 'contato-indisponivel' && (
+          <p className="wallet-alert" role="alert">Não foi possível abrir o WhatsApp. O associado pode estar sem um contato válido na Hinova.</p>
+        )}
 
         <section className="card wallet-panel">
           <div className="wallet-toolbar">
@@ -83,53 +90,41 @@ export default async function CarteiraPage({
             <form className="search-field" method="get">
               <Icon name="search" />
               {activeStatus !== 'todos' && <input type="hidden" name="status" value={activeStatus} />}
-              <input type="search" name="query" placeholder="Buscar nome ou placa" defaultValue={query ?? ''} aria-label="Buscar associado ou placa" />
+              <LiveFilterInput key={`${activeStatus}:${query ?? ''}`} type="search" name="query" placeholder="Buscar por nome" initialValue={query ?? ''} aria-label="Buscar associado" />
             </form>
           </div>
 
           <div className="table-wrap">
-            <table>
+            <table className="wallet-table">
               <thead>
                 <tr>
-                  <th>Associado</th>
-                  <th>Vencimento</th>
-                  <th className="number">Valor do boleto</th>
-                  <th>Situação</th>
-                  <th className="number">Sua comissão</th>
+                  <th>Nome</th>
+                  <th className="number">Valor</th>
+                  <th>Data de vencimento</th>
+                  <th className="wallet-contact-col" aria-label="WhatsApp" />
                 </tr>
               </thead>
               <tbody>
                 {wallet.items.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="empty-state">
+                  <tr className="wallet-empty-row">
+                    <td colSpan={4} className="empty-state">
                       <Icon name="search" />
                       <strong>Nenhum boleto encontrado</strong>
-                      <span>Tente outro nome, placa ou situação.</span>
+                      <span>Tente outro nome ou situação.</span>
                     </td>
                   </tr>
                 ) : (
                   wallet.items.map((item) => (
                     <tr key={item.id}>
-                      <td>
-                        <div className="associate-button">
-                          <span className="row-avatar">
-                            {item.associadoNome.split(' ').slice(0, 2).map((p) => p[0]).join('')}
-                          </span>
-                          <span>
-                            <strong>{item.associadoNome}</strong>
-                            {item.placa && <span className="plate">{item.placa}</span>}
-                          </span>
-                        </div>
+                      <td className="wallet-name">{item.associadoNome}</td>
+                      <td className="number amount" data-label="Valor">{formatMoney(item.valor)}</td>
+                      <td data-label="Vencimento">{formatDate(item.vencimento)}</td>
+                      <td className="wallet-contact-col">
+                        <a className="whatsapp-link" href={`/carteira/whatsapp/${item.id}`}
+                          aria-label={`Falar com ${item.associadoNome} pelo WhatsApp`} title="Falar pelo WhatsApp">
+                          <Icon name="whatsapp" />
+                        </a>
                       </td>
-                      <td>
-                        {formatDate(item.vencimento)}
-                        {item.diasAtraso != null && <span className="late-days">{item.diasAtraso} dias em atraso</span>}
-                      </td>
-                      <td className="number amount">{formatMoney(item.valor)}</td>
-                      <td>
-                        <span className={boletoStatusBadgeClass(item.status)}>{boletoStatusLabels[item.status] ?? item.status}</span>
-                      </td>
-                      <td className={item.comissao > 0 ? 'number amount earned' : 'number amount muted'}>{formatMoney(item.comissao)}</td>
                     </tr>
                   ))
                 )}
@@ -140,7 +135,6 @@ export default async function CarteiraPage({
           <div className="results-summary">
             <span>{wallet.totalCount} {wallet.totalCount === 1 ? 'boleto' : 'boletos'} no filtro</span>
             <span>Valor dos boletos <strong>{formatMoney(wallet.totalValor)}</strong></span>
-            <span>Comissão apurada <strong>{formatMoney(wallet.totalComissao)}</strong></span>
           </div>
 
           <div className="pagination">
@@ -173,10 +167,6 @@ export default async function CarteiraPage({
           </div>
         </section>
 
-        <p className="wallet-note">
-          <Icon name="info" />
-          A comissão é gerada após a confirmação do pagamento. A situação do associado pode variar.
-        </p>
       </div>
     </AppShell>
   );

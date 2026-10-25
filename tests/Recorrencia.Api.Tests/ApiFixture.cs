@@ -37,6 +37,7 @@ public sealed class ApiFixture : IAsyncLifetime
             builder.UseSetting("Auth:MaxFailuresPerWindow", "5");
             builder.UseSetting("Web:Scheme", "http");
             builder.UseSetting("Web:RootDomain", "localhost:3000");
+            builder.UseSetting("Hinova:BoletoSyncAutomatico", "false");
             builder.UseSetting("Hinova:EncryptionKey", Convert.ToBase64String(new byte[32]));
 
             builder.ConfigureServices(services =>

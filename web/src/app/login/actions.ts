@@ -21,5 +21,5 @@ export async function login(_: FormState, formData: FormData): Promise<FormState
     if (error instanceof ApiError) return { error: messageFor(error.code) };
     throw error;
   }
-  redirect('/');
+  redirect(host.kind === 'platform' ? '/' : '/fechamento');
 }

@@ -48,6 +48,23 @@ public class HinovaClientTests
     }
 
     [Fact]
+    public async Task BuscarContatoAssociado_prefers_a_valid_mobile_and_builds_brazilian_whatsapp_number()
+    {
+        var (client, handler) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""
+                [{"telefone_celular":"()","telefone_celular_aux":"(31) 99876-5432","telefone":"(31) 3333-4444"}]
+                """, System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        var phone = await client.BuscarContatoAssociadoAsync("token-usuario", "123", CancellationToken.None);
+
+        Assert.Equal("5531998765432", phone);
+        Assert.Equal("https://api.hinova.com.br/api/sga/v2/listar/associado/contatos/123", handler.LastRequest!.RequestUri!.ToString());
+        Assert.Equal("token-usuario", handler.LastRequest.Headers.Authorization!.Parameter);
+    }
+
+    [Fact]
     public async Task ListarVoluntarios_sends_the_user_token_and_parses_the_array()
     {
         var (client, handler) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
@@ -162,6 +179,58 @@ public class HinovaClientTests
     }
 
     [Fact]
+    public async Task BuscarVoluntario_parses_live_array_response_and_matches_the_requested_cpf()
+    {
+        const string json = """
+            [
+              { "codigo_voluntario": "88", "nome": "Outra pessoa", "cpf": "11122233344", "cooperativas": [] },
+              { "codigo_voluntario": "99", "nome": "Pessoa procurada", "cpf": "222.333.444-55",
+                "cooperativas": [{ "codigo_cooperativa": "9" }] }
+            ]
+            """;
+        var (client, _) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        var found = await client.BuscarVoluntarioAsync("token-usuario", "22233344455", CancellationToken.None);
+
+        Assert.NotNull(found);
+        Assert.Equal(("99", "Pessoa procurada"), (found!.Codigo, found.Nome));
+        Assert.Equal(["9"], found.CooperativaCodigos);
+    }
+
+    [Fact]
+    public async Task BuscarVoluntario_returns_null_on_an_empty_success_array()
+    {
+        var (client, _) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("[]", System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        Assert.Null(await client.BuscarVoluntarioAsync("token-usuario", "99999999999", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task BuscarVoluntario_matches_the_requested_code_in_an_array()
+    {
+        const string json = """
+            [{ "codigo_voluntario": "214", "nome": "Indicador", "cpf": "12345678901",
+               "cooperativas": [{ "codigo_cooperativa": 5 }] }]
+            """;
+        var (client, _) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        var found = await client.BuscarVoluntarioAsync("token-usuario", "214", CancellationToken.None);
+
+        Assert.NotNull(found);
+        Assert.Equal("214", found!.Codigo);
+        Assert.Equal(["5"], found.CooperativaCodigos);
+    }
+
+    [Fact]
     public async Task CadastrarVoluntario_sends_every_field_and_returns_codigo_voluntario()
     {
         HttpRequestMessage? captured = null;
@@ -214,6 +283,29 @@ public class HinovaClientTests
     }
 
     [Fact]
+    public async Task ListarBoletosPeriodo_can_filter_by_due_date_instead_of_payment_date()
+    {
+        HttpRequestMessage? captured = null;
+        var (client, _) = NewClient(req =>
+        {
+            captured = req;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new { numero_paginas = 0, total_registros = "0", pagina_corrente = 0, boletos = Array.Empty<object>() }),
+            };
+        });
+
+        await client.ListarBoletosPeriodoAsync("token-usuario",
+            new HinovaBoletoPeriodoFiltro(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30), 100, 0,
+                FiltrarPorVencimento: true), CancellationToken.None);
+
+        var body = await captured!.Content!.ReadAsStringAsync();
+        Assert.Contains("\"data_vencimento_inicial\":\"01/09/2026\"", body);
+        Assert.Contains("\"data_vencimento_final\":\"30/09/2026\"", body);
+        Assert.DoesNotContain("data_pagamento_inicial", body);
+    }
+
+    [Fact]
     public async Task ListarBoletosPeriodo_parses_the_real_apis_mixed_number_and_string_fields()
     {
         // Shape confirmed against a real, live response: nosso_numero/codigo_associado are JSON
@@ -235,12 +327,16 @@ public class HinovaClientTests
                   "codigo_associado": 4242,
                   "nome_associado": "FULANO DA SILVA",
                   "data_vencimento": "2026-09-10",
-                  "data_pagamento": "2026-09-09",
+                  "data_pagamento": "2026-09-09T00:00:00.000Z",
+                  "codigo_tipo_boleto": "5",
+                  "tipo_boleto": "FECHAMENTO",
+                  "situacao_boleto": "BAIXADO",
                   "veiculos": [
                     {
                       "codigo_veiculo": 9001,
                       "codigo_voluntario": "26",
-                      "placa": "ABC1D23"
+                      "placa": "ABC1D23",
+                      "data_inicio_contrato_veiculo": "2026-08-31T00:00:00-03:00"
                     }
                   ]
                 }
@@ -260,8 +356,11 @@ public class HinovaClientTests
         Assert.Equal(("555111", 150.00m, 150.00m, "4242", "FULANO DA SILVA"), (boleto.NossoNumero, boleto.ValorBoleto, boleto.ValorPagamento, boleto.CodigoAssociado, boleto.NomeAssociado));
         Assert.Equal(new DateOnly(2026, 9, 10), boleto.Vencimento);
         Assert.Equal(new DateOnly(2026, 9, 9), boleto.DataPagamento);
+        Assert.Equal(("5", "FECHAMENTO"), (boleto.CodigoTipoBoleto, boleto.TipoBoleto));
+        Assert.Equal("BAIXADO", boleto.SituacaoBoleto);
         var veiculo = Assert.Single(boleto.Veiculos);
         Assert.Equal(("9001", "26", "ABC1D23"), (veiculo.CodigoVeiculo, veiculo.CodigoVoluntario, veiculo.Placa));
+        Assert.Equal(new DateOnly(2026, 8, 31), veiculo.DataInicioContratoVeiculo);
     }
 
     [Fact]

@@ -63,11 +63,6 @@ export function ParticipanteEditForm({
           </label>
         </>
       )}
-      <label>
-        Nova senha
-        <input type="password" name="password" minLength={10} maxLength={128} autoComplete="new-password" />
-      </label>
-      <p className="muted">Deixe em branco para não alterar a senha.</p>
       {state.error && (
         <p role="alert" className="error">
           {state.error}

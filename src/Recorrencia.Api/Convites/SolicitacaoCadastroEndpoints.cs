@@ -17,7 +17,14 @@ public static class SolicitacaoCadastroEndpoints
 
     public sealed record SolicitacaoResponse(Guid Id, string Nome, string Cpf, string Celular, string Email, string Cep,
         string Logradouro, string Numero, string? Complemento, string Bairro, string Cidade, string Estado,
-        Guid IndicadorUserId, string IndicadorNome, DateTimeOffset CriadoEm);
+        Guid IndicadorUserId, string IndicadorNome, DateTimeOffset CriadoEm, string Status,
+        bool ProcessarAutomaticamente, DateTimeOffset? ProcessandoEm, string? ErroCodigo,
+        DateTimeOffset? ResolvidoEm, DateTimeOffset? ConviteEnviadoEm, string? ConviteErro);
+
+    public sealed record VoluntarioExistenteResponse(bool Encontrado, string? CodigoVoluntario, string? Nome,
+        string? Email, bool JaVinculado);
+
+    public sealed record VincularExistenteRequest(string? CodigoVoluntario);
 
     private sealed class IndicadorRow
     {
@@ -48,6 +55,12 @@ public static class SolicitacaoCadastroEndpoints
         public string Estado { get; set; } = "";
         public string Status { get; set; } = "";
         public DateTimeOffset CriadoEm { get; set; }
+        public bool ProcessarAutomaticamente { get; set; }
+        public DateTimeOffset? ProcessandoEm { get; set; }
+        public string? ErroCodigo { get; set; }
+        public DateTimeOffset? ResolvidoEm { get; set; }
+        public DateTimeOffset? ConviteEnviadoEm { get; set; }
+        public string? ConviteErro { get; set; }
     }
 
     public static void MapSolicitacaoCadastroEndpoints(this IEndpointRouteBuilder app)
@@ -55,7 +68,10 @@ public static class SolicitacaoCadastroEndpoints
         app.MapPost("/convite-links/{token}/solicitacoes", SolicitarAsync);
         app.MapGet("/solicitacoes-cadastro", ListarAsync).RequirePermission("usuarios.convidar").RequirePermission("integracoes.gerenciar");
         app.MapPost("/solicitacoes-cadastro/{id:guid}/aprovar", AprovarAsync).RequirePermission("usuarios.convidar").RequirePermission("integracoes.gerenciar");
+        app.MapGet("/solicitacoes-cadastro/{id:guid}/voluntario-existente", ConsultarExistenteAsync).RequirePermission("usuarios.convidar").RequirePermission("integracoes.gerenciar");
+        app.MapPost("/solicitacoes-cadastro/{id:guid}/vincular-existente", VincularExistenteAsync).RequirePermission("usuarios.convidar").RequirePermission("integracoes.gerenciar");
         app.MapPost("/solicitacoes-cadastro/{id:guid}/rejeitar", RejeitarAsync).RequirePermission("usuarios.convidar").RequirePermission("integracoes.gerenciar");
+        app.MapPost("/solicitacoes-cadastro/{id:guid}/reprocessar", ReprocessarAsync).RequirePermission("usuarios.convidar").RequirePermission("integracoes.gerenciar");
     }
 
     private static async Task<IResult> SolicitarAsync(string token, SolicitarRequest body, RequestContext request, Database db,
@@ -109,8 +125,8 @@ public static class SolicitacaoCadastroEndpoints
             await db.InTenantAsync(tenant, null, tx => tx.ExecuteAsync(
                 """
                 insert into solicitacoes_cadastro
-                  (id, tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, complemento, bairro, cidade, estado)
-                values (@id, @tenant, @indicadorId, @nome, @cpf, @celular, @email, @cep, @logradouro, @numero, @complemento, @bairro, @cidade, @estado)
+                  (id, tenant_id, indicador_user_id, nome, cpf, celular, email, cep, logradouro, numero, complemento, bairro, cidade, estado, processar_automaticamente)
+                values (@id, @tenant, @indicadorId, @nome, @cpf, @celular, @email, @cep, @logradouro, @numero, @complemento, @bairro, @cidade, @estado, true)
                 """,
                 new { id, tenant, indicadorId = indicador.UserId, nome, cpf, celular, email, cep, logradouro, numero, complemento, bairro, cidade, estado }), ct);
 
@@ -133,13 +149,17 @@ public static class SolicitacaoCadastroEndpoints
         var rows = await db.InTenantAsync(tenant, user, tx => tx.QueryAsync<SolicitacaoRow>(
             """
             select s.id, s.tenant_id, s.indicador_user_id, u.name as indicador_nome, s.nome, s.cpf, s.celular, s.email,
-                   s.cep, s.logradouro, s.numero, s.complemento, s.bairro, s.cidade, s.estado, s.status, s.criado_em
+                   s.cep, s.logradouro, s.numero, s.complemento, s.bairro, s.cidade, s.estado, s.status, s.criado_em,
+                   s.processar_automaticamente, s.processando_em, s.erro_codigo, s.resolvido_em,
+                   s.convite_enviado_em, s.convite_erro
               from solicitacoes_cadastro s join users u on u.id = s.indicador_user_id
-             where s.status = 'pendente'
-             order by s.criado_em
+             order by s.criado_em desc
+             limit 100
             """), ct);
         return Results.Ok(rows.Select(r => new SolicitacaoResponse(r.Id, r.Nome, r.Cpf, r.Celular, r.Email, r.Cep,
-            r.Logradouro, r.Numero, r.Complemento, r.Bairro, r.Cidade, r.Estado, r.IndicadorUserId, r.IndicadorNome, r.CriadoEm)).ToList());
+            r.Logradouro, r.Numero, r.Complemento, r.Bairro, r.Cidade, r.Estado, r.IndicadorUserId, r.IndicadorNome,
+            r.CriadoEm, r.Status, r.ProcessarAutomaticamente, r.ProcessandoEm, r.ErroCodigo,
+            r.ResolvidoEm, r.ConviteEnviadoEm, r.ConviteErro)).ToList());
     }
 
     private static async Task<IResult> AprovarAsync(Guid id, RequestContext request, Database db, CurrentPermissions permissions,
@@ -160,6 +180,8 @@ public static class SolicitacaoCadastroEndpoints
             """, new { tenant, id }), ct) ?? throw new ApiProblem(StatusCodes.Status404NotFound, "solicitacao.not_found");
         if (pre.Status != "pendente")
             throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.ja_resolvida");
+        if (pre.ProcessandoEm is not null)
+            throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.em_processamento");
 
         var indicadorCodigo = await db.InTenantAsync(tenant, actor, tx => tx.QuerySingleOrDefaultAsync<string>(
             "select codigo_voluntario from hinova_voluntario_mapping where tenant_id = @tenant and user_id = @indicadorId",
@@ -201,6 +223,8 @@ public static class SolicitacaoCadastroEndpoints
                 "select * from solicitacoes_cadastro where tenant_id = @tenant and id = @id for update", new { tenant, id });
             if (solicitacao.Status != "pendente")
                 throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.ja_resolvida");
+            if (solicitacao.ProcessandoEm is not null)
+                throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.em_processamento");
 
             var userId = Guid.CreateVersion7();
             await UserEndpoints.CreateUserWithRolesAsync(tx, tenant, userId, solicitacao.Nome, solicitacao.Email, solicitacao.IndicadorUserId, roleIds);
@@ -209,7 +233,7 @@ public static class SolicitacaoCadastroEndpoints
                 solicitacao.IndicadorUserId, roleIds, options.Value.InviteTtlSeconds);
 
             await tx.ExecuteAsync(
-                "update solicitacoes_cadastro set status = 'aprovado', resolvido_em = now(), resolvido_por = @actor, user_id_resultante = @userId where id = @id",
+                "update solicitacoes_cadastro set status = 'aprovado', resolvido_em = now(), resolvido_por = @actor, user_id_resultante = @userId, erro_codigo = null where id = @id",
                 new { actor, userId, id });
             await WriteAsync(tx, tenant, actor, "solicitacao.aprovar", "solicitacoes_cadastro", id, null, new { userId, codigoVoluntario });
 
@@ -228,17 +252,140 @@ public static class SolicitacaoCadastroEndpoints
         return Results.Ok(new { userId = newUserId });
     }
 
+    private static async Task<IResult> ConsultarExistenteAsync(Guid id, RequestContext request, Database db,
+        IHinovaClient hinova, AesGcmCipher cipher, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        var pre = await LoadPendingAsync(id, tenant, actor, db, ct);
+        var existente = await BuscarCpfExistenteAsync(pre.Cpf, tenant, actor, db, hinova, cipher, ct);
+        if (existente is null)
+            return Results.Ok(new VoluntarioExistenteResponse(false, null, null, null, false));
+
+        var jaVinculado = await db.InTenantAsync(tenant, actor, tx => tx.ExecuteScalarAsync<bool>(
+            "select exists(select 1 from hinova_voluntario_mapping where tenant_id = @tenant and codigo_voluntario = @codigo)",
+            new { tenant, codigo = existente.Codigo }), ct);
+        return Results.Ok(new VoluntarioExistenteResponse(true, existente.Codigo, existente.Nome,
+            existente.Email, jaVinculado));
+    }
+
+    private static async Task<IResult> VincularExistenteAsync(Guid id, VincularExistenteRequest body,
+        RequestContext request, Database db, CurrentPermissions permissions, IHinovaClient hinova,
+        AesGcmCipher cipher, IEmailSender email, LinkBuilder links, IOptions<AuthOptions> options, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        var mine = await permissions.GetAsync(ct);
+        var pre = await LoadPendingAsync(id, tenant, actor, db, ct);
+        var codigoConfirmado = (body.CodigoVoluntario ?? "").Trim();
+        if (codigoConfirmado.Length == 0)
+            throw new ApiProblem(StatusCodes.Status400BadRequest, "request.invalid");
+
+        // Confirm the volunteer again at the moment of linking. The preview only helps the
+        // administrator compare identities; it is not trusted as a write authorization.
+        var existente = await BuscarCpfExistenteAsync(pre.Cpf, tenant, actor, db, hinova, cipher, ct)
+            ?? throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.voluntario_nao_encontrado");
+        if (!string.Equals(existente.Codigo, codigoConfirmado, StringComparison.Ordinal))
+            throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.voluntario_alterado");
+
+        var roleIds = (await db.InTenantAsync(tenant, actor, tx => tx.QueryAsync<Guid>(
+            "select id from roles where tenant_id = @tenant and source_template_key = 'consultor'", new { tenant }), ct)).ToArray();
+        await db.InTenantAsync(tenant, actor, async tx => { await RoleGuards.EnsureCanGrantRolesAsync(tx, mine, roleIds); return 0; }, ct);
+
+        var (newUserId, enderecoEmail, inviteToken) = await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            var solicitacao = await tx.QuerySingleOrDefaultAsync<SolicitacaoRow>(
+                "select * from solicitacoes_cadastro where tenant_id = @tenant and id = @id for update", new { tenant, id })
+                ?? throw new ApiProblem(StatusCodes.Status404NotFound, "solicitacao.not_found");
+            if (solicitacao.Status != "pendente")
+                throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.ja_resolvida");
+            if (solicitacao.ProcessandoEm is not null)
+                throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.em_processamento");
+            if (!string.Equals(solicitacao.Cpf, pre.Cpf, StringComparison.Ordinal))
+                throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.voluntario_alterado");
+
+            var userId = Guid.CreateVersion7();
+            await UserEndpoints.CreateUserWithRolesAsync(tx, tenant, userId, solicitacao.Nome, solicitacao.Email,
+                solicitacao.IndicadorUserId, roleIds);
+            await UserEndpoints.LinkHinovaAsync(tx, tenant, userId, actor, existente.Codigo, existente.Nome, existente.Cpf);
+            var inviteToken = await UserEndpoints.CreateInviteTokenAsync(tx, tenant, actor, userId,
+                solicitacao.Nome, solicitacao.Email, solicitacao.IndicadorUserId, roleIds, options.Value.InviteTtlSeconds);
+            await tx.ExecuteAsync(
+                "update solicitacoes_cadastro set status = 'aprovado', resolvido_em = now(), resolvido_por = @actor, user_id_resultante = @userId, erro_codigo = null where id = @id",
+                new { actor, userId, id });
+            await WriteAsync(tx, tenant, actor, "solicitacao.vincular_existente", "solicitacoes_cadastro", id, null,
+                new { userId, codigoVoluntario = existente.Codigo });
+            return (userId, solicitacao.Email, inviteToken);
+        }, ct);
+
+        await email.SendAsync(enderecoEmail, "Convite de acesso",
+            EmailTemplates.AccessLink(
+                "Convite de acesso",
+                $"Você foi convidado para acessar a plataforma de {request.TenantName}.",
+                "Definir minha senha",
+                links.SetPassword(request.TenantSlug!, inviteToken),
+                "O link vale por 72 horas.",
+                links.Logo(request.TenantSlug!)), ct);
+        return Results.Ok(new { userId = newUserId });
+    }
+
+    private static async Task<SolicitacaoRow> LoadPendingAsync(Guid id, Guid tenant, Guid actor, Database db, CancellationToken ct)
+    {
+        var pre = await db.InTenantAsync(tenant, actor, tx => tx.QuerySingleOrDefaultAsync<SolicitacaoRow>(
+            "select * from solicitacoes_cadastro where tenant_id = @tenant and id = @id", new { tenant, id }), ct)
+            ?? throw new ApiProblem(StatusCodes.Status404NotFound, "solicitacao.not_found");
+        if (pre.Status != "pendente")
+            throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.ja_resolvida");
+        if (pre.ProcessandoEm is not null)
+            throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.em_processamento");
+        return pre;
+    }
+
+    private static async Task<IResult> ReprocessarAsync(Guid id, RequestContext request, Database db, CancellationToken ct)
+    {
+        var tenant = request.RequireTenant();
+        var actor = request.RequireUser();
+        await db.InTenantAsync(tenant, actor, async tx =>
+        {
+            var row = await tx.QuerySingleOrDefaultAsync<SolicitacaoRow>(
+                "select * from solicitacoes_cadastro where tenant_id = @tenant and id = @id for update", new { tenant, id })
+                ?? throw new ApiProblem(StatusCodes.Status404NotFound, "solicitacao.not_found");
+            if (row.Status != "pendente")
+                throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.ja_resolvida");
+            if (row.ProcessandoEm is not null)
+                throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.em_processamento");
+            await tx.ExecuteAsync(
+                "update solicitacoes_cadastro set processar_automaticamente = true, erro_codigo = null where id = @id",
+                new { id });
+            await WriteAsync(tx, tenant, actor, "solicitacao.reprocessar", "solicitacoes_cadastro", id, null, null);
+            return 0;
+        }, ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<HinovaVoluntarioDetalhe?> BuscarCpfExistenteAsync(string cpf, Guid tenant, Guid actor,
+        Database db, IHinovaClient hinova, AesGcmCipher cipher, CancellationToken ct)
+    {
+        var tokenUsuario = await HinovaAuth.GetTokenUsuarioAsync(db, tenant, actor, cipher, hinova, ct);
+        var encontrado = await hinova.BuscarVoluntarioAsync(tokenUsuario, cpf, ct);
+        if (encontrado is null) return null;
+        var cpfEncontrado = new string(encontrado.Cpf.Where(char.IsDigit).ToArray());
+        return cpfEncontrado == cpf ? encontrado : null;
+    }
+
     private static async Task<IResult> RejeitarAsync(Guid id, RequestContext request, Database db, CancellationToken ct)
     {
         var tenant = request.RequireTenant();
         var actor = request.RequireUser();
         await db.InTenantAsync(tenant, actor, async tx =>
         {
-            var status = await tx.QuerySingleOrDefaultAsync<string>(
-                "select status from solicitacoes_cadastro where tenant_id = @tenant and id = @id for update", new { tenant, id })
+            var row = await tx.QuerySingleOrDefaultAsync<SolicitacaoRow>(
+                "select * from solicitacoes_cadastro where tenant_id = @tenant and id = @id for update", new { tenant, id })
                 ?? throw new ApiProblem(StatusCodes.Status404NotFound, "solicitacao.not_found");
-            if (status != "pendente")
+            if (row.Status != "pendente")
                 throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.ja_resolvida");
+            if (row.ProcessandoEm is not null)
+                throw new ApiProblem(StatusCodes.Status409Conflict, "solicitacao.em_processamento");
 
             await tx.ExecuteAsync(
                 "update solicitacoes_cadastro set status = 'rejeitado', resolvido_em = now(), resolvido_por = @actor where id = @id",

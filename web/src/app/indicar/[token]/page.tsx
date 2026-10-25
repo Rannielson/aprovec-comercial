@@ -21,7 +21,7 @@ export default async function IndicarPage({ params }: { params: Promise<{ token:
         <div className="login-card">
           <p className="eyebrow">Indicação</p>
           <h1>Você foi indicado por {convite.indicadorNome}</h1>
-          <p className="muted">Preencha seus dados para solicitar seu cadastro em {convite.tenantNome}.</p>
+          <p className="muted">Preencha seus dados para iniciar seu cadastro em {convite.tenantNome}. Você receberá o acesso por e-mail quando o registro for concluído.</p>
           <IndicacaoForm token={token} />
         </div>
       </section>

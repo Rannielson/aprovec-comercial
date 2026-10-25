@@ -1,4 +1,4 @@
-export type IconName = 'grid' | 'wallet' | 'calendar' | 'logout' | 'search' | 'back' | 'chevron' | 'info' | 'settings' | 'link' | 'trash' | 'people' | 'shield' | 'plus' | 'close' | 'arrow' | 'percent' | 'check' | 'receipt';
+export type IconName = 'grid' | 'wallet' | 'calendar' | 'logout' | 'search' | 'back' | 'chevron' | 'info' | 'settings' | 'link' | 'trash' | 'people' | 'shield' | 'plus' | 'close' | 'arrow' | 'percent' | 'check' | 'receipt' | 'whatsapp';
 
 const svgProps = {
   viewBox: '0 0 24 24',
@@ -13,6 +13,13 @@ const svgProps = {
 export function Icon({ name, className }: { name: IconName; className?: string }) {
   const cls = className ? `icon ${className}` : 'icon';
   switch (name) {
+    case 'whatsapp':
+      return (
+        <svg className={cls} {...svgProps}>
+          <path d="M20.4 11.7a8.4 8.4 0 0 1-12.2 7.5L3.5 20.5l1.3-4.6a8.4 8.4 0 1 1 15.6-4.2Z" />
+          <path d="M8.8 7.9c-.3-.4-.6-.4-.9 0-.3.4-.7 1-.6 1.7.2 1.6 2.5 4.3 4.8 5.4 1.2.6 2.3.5 3.2-.2.4-.3.7-.8.7-1.2 0-.3-.2-.5-.6-.7l-1.6-.7c-.3-.1-.5 0-.7.3l-.6.7c-.1.2-.3.2-.6.1-1.1-.5-2.2-1.4-2.8-2.4-.2-.2-.2-.4 0-.6l.5-.6c.2-.2.2-.4.1-.7l-.9-1.1Z" />
+        </svg>
+      );
     case 'grid':
       return (
         <svg className={cls} {...svgProps}>

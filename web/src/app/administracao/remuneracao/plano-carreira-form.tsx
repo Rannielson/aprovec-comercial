@@ -19,6 +19,7 @@ export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
   const [metaMinimaAtiva, setMetaMinimaAtiva] = useState(plano?.metaMinimaContratos != null);
   const [metaMinimaContratos, setMetaMinimaContratos] = useState(plano?.metaMinimaContratos != null ? String(plano.metaMinimaContratos) : '');
   const [metaMinimaFonteData, setMetaMinimaFonteData] = useState(plano?.metaMinimaFonteData ?? 'contrato');
+  const [bonusExtraAtivo, setBonusExtraAtivo] = useState(plano?.bonusExtraValor != null);
   const [bonusExtraValor, setBonusExtraValor] = useState(plano?.bonusExtraValor != null ? String(plano.bonusExtraValor) : '');
   const [recorrenciaAtiva, setRecorrenciaAtiva] = useState(plano?.recorrenciaAtiva ?? false);
   const [faixas, setFaixas] = useState<FaixaRow[]>(
@@ -106,7 +107,7 @@ export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
             </label>
           )}
           <label>
-            Janela de apuração (dias)
+            Prazo após o último dia do mês de produção (dias)
             <input
               type="number"
               name="janelaApuracaoDias"
@@ -132,8 +133,8 @@ export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
         <div className="plano-section-head">
           <Icon name="wallet" />
           <div>
-            <h2>Bonificação por placa</h2>
-            <p>Valor pago por veículo novo, de acordo com a faixa de quantidade no período.</p>
+            <h2>Bônus por placas novas pagas</h2>
+            <p>Conte cada veículo uma vez quando o contrato iniciar no mês de produção e o primeiro boleto FECHAMENTO for pago no prazo. A faixa alcançada define o valor por veículo.</p>
           </div>
         </div>
         {faixas.map((faixa, i) => (
@@ -219,18 +220,34 @@ export function PlanoCarreiraForm({ plano }: { plano?: PlanoCarreira }) {
       </div>
 
       <div className="plano-section">
-        <label>
-          Bônus extra (regime especial)
-          <input
-            type="number"
-            name="bonusExtraValor"
-            step="0.01"
-            min={0.01}
-            value={bonusExtraValor}
-            onChange={(e) => setBonusExtraValor(e.target.value)}
-          />
-        </label>
-        <p className="muted">Deixe em branco se este plano não tem valor extra fixo.</p>
+        <div className="plano-toggle-row">
+          <span id="bonus-extra-label">Bônus extra (regime especial)</span>
+          <button
+            type="button"
+            className="plano-toggle-control"
+            role="switch"
+            aria-labelledby="bonus-extra-label"
+            aria-checked={bonusExtraAtivo}
+            onClick={() => setBonusExtraAtivo((ativo) => !ativo)}
+          >
+            <span className="plano-toggle-track" aria-hidden="true" />
+            <strong>{bonusExtraAtivo ? 'Sim' : 'Não'}</strong>
+          </button>
+        </div>
+        {bonusExtraAtivo && (
+          <label className="plano-bonus-valor">
+            Valor do bônus extra
+            <input
+              type="number"
+              name="bonusExtraValor"
+              step="0.01"
+              min={0.01}
+              value={bonusExtraValor}
+              onChange={(e) => setBonusExtraValor(e.target.value)}
+              required
+            />
+          </label>
+        )}
       </div>
 
       <div className="plano-section">

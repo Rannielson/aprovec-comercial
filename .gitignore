@@ -1,6 +1,13 @@
 .12ui/
 tmp/
 .env
+.env.*
+!.env.example
+!.env.*.example
+.DS_Store
+.claude/
+outputs/
+coverage/
 bin/
 obj/
 TestResults/

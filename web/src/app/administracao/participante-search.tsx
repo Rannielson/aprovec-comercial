@@ -44,19 +44,22 @@ export function ParticipanteSearch({
           />
         </form>
       ) : null}
-      {!selected &&
-        voluntarios.map((v) => (
-          <button
-            key={v.codigo}
-            type="button"
-            className="participante-option"
-            disabled={v.jaVinculado}
-            onClick={() => setSelected(v)}
-          >
-            <strong>{v.nome}</strong>
-            {v.jaVinculado ? <span className="badge neutral">Vinculado a {v.vinculadoA}</span> : <span className="muted">{v.cpf}</span>}
-          </button>
-        ))}
+      {!selected && voluntarios.length > 0 && (
+        <div className="participante-options" aria-label="Voluntários encontrados">
+          {voluntarios.map((v) => (
+            <button
+              key={v.codigo}
+              type="button"
+              className="participante-option"
+              disabled={v.jaVinculado}
+              onClick={() => setSelected(v)}
+            >
+              <strong>{v.nome}</strong>
+              {v.jaVinculado ? <span className="badge neutral">Vinculado a {v.vinculadoA}</span> : <span className="muted">{v.cpf}</span>}
+            </button>
+          ))}
+        </div>
+      )}
       {selected && (
         <form action={formAction} className="form">
           <input type="hidden" name="supervisorId" value={supervisorId ?? ''} />

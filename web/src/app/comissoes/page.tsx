@@ -3,11 +3,11 @@ import { AppShell } from '../app-shell';
 import { apiFetch, currentHost } from '@/lib/api';
 import { Icon } from '../components/app-icon';
 import { currentCompetencia, formatCompetencia, formatDate, formatMoney, formatPercent, ruleLabel, statusBadgeClass, statusLabels } from '@/lib/format';
-import type { Commissions, CommissionEntry, Me } from '@/lib/types';
+import type { Commissions, CommissionDownline, CommissionEntry, Me } from '@/lib/types';
 
 const SOURCE_TABS: { value: 'proprias' | 'indicacoes'; label: string; icon: 'wallet' | 'people' }[] = [
   { value: 'proprias', label: 'Vendas próprias', icon: 'wallet' },
-  { value: 'indicacoes', label: 'Indicação direta', icon: 'people' },
+  { value: 'indicacoes', label: 'Minha árvore', icon: 'people' },
 ];
 
 export default async function ComissoesPage({
@@ -36,31 +36,22 @@ export default async function ComissoesPage({
   const activeSource = source === 'indicacoes' ? 'indicacoes' : 'proprias';
   const month = currentCompetencia();
 
-  const [commissions, entries] = await Promise.all([
+  const [commissions, entries, downline] = await Promise.all([
     apiFetch<Commissions>(`/commissions/${month}`),
     apiFetch<CommissionEntry[]>(`/commissions/${month}/entries?beneficiaryId=${me.id}`),
+    apiFetch<CommissionDownline[]>(`/commissions/${month}/downline?beneficiaryId=${me.id}`),
   ]);
   const own = commissions.beneficiaries.find((b) => b.userId === me.id) ?? null;
 
   const ownRule = own?.byRule.find((r) => r.ruleType === 'own') ?? null;
-  const referralRule = own?.byRule.find((r) => r.ruleType === 'upline' && r.level === 1) ?? null;
+  const downlineBase = downline.reduce((sum, person) => sum + person.base, 0);
+  const downlineAmount = downline.reduce((sum, person) => sum + person.amount, 0);
+  const downlineRates = [...new Set(downline.map((person) => person.rate))]
+    .filter((rate) => rate > 0).sort((a, b) => b - a);
 
   const ownEntries = entries
     .filter((e) => e.ruleType === 'own')
     .sort((a, b) => (b.pagoEm ?? '').localeCompare(a.pagoEm ?? ''));
-
-  const referralByPerson = new Map<string, { name: string; base: number; amount: number }>();
-  for (const e of entries) {
-    if (e.ruleType !== 'upline' || e.level !== 1) continue;
-    const existing = referralByPerson.get(e.originUserId);
-    if (existing) {
-      existing.base += e.base;
-      existing.amount += e.amount;
-    } else {
-      referralByPerson.set(e.originUserId, { name: e.originName ?? 'Participante', base: e.base, amount: e.amount });
-    }
-  }
-  const referrals = Array.from(referralByPerson.values()).sort((a, b) => b.amount - a.amount);
 
   function hrefFor(sourceValue: string): string {
     return sourceValue === 'proprias' ? '/comissoes' : `/comissoes?source=${sourceValue}`;
@@ -108,7 +99,9 @@ export default async function ComissoesPage({
             {SOURCE_TABS.map((tab) => (
               <a key={tab.value} href={hrefFor(tab.value)} className={tab.value === activeSource ? 'selected' : ''}>
                 <Icon name={tab.icon} />
-                {tab.label} <span>{formatPercent((tab.value === 'proprias' ? ownRule?.rate : referralRule?.rate) ?? 0)}</span>
+                {tab.label} <span>{tab.value === 'proprias'
+                  ? formatPercent(ownRule?.rate ?? 0)
+                  : downlineRates.map(formatPercent).join(' · ') || '—'}</span>
               </a>
             ))}
           </div>
@@ -169,29 +162,25 @@ export default async function ComissoesPage({
             <>
               <div className="source-summary">
                 <div>
-                  <span>Recebidos dos indicados diretos</span>
-                  <strong>{formatMoney(referralRule?.base ?? 0)}</strong>
+                  <span>Recebidos nas carteiras abaixo</span>
+                  <strong>{formatMoney(downlineBase)}</strong>
                 </div>
-                <span className="operator">×</span>
-                <div>
-                  <span>Indicação direta</span>
-                  <strong>{formatPercent(referralRule?.rate ?? 0)}</strong>
-                </div>
-                <span className="operator">=</span>
+                <span className="operator">→</span>
                 <div className="source-result">
-                  <span>Sua comissão</span>
-                  <strong>{formatMoney(referralRule?.amount ?? 0)}</strong>
+                  <span>Sua comissão da árvore</span>
+                  <strong>{formatMoney(downlineAmount)}</strong>
                 </div>
               </div>
-              {referrals.length === 0 ? (
-                <p className="muted" style={{ padding: '0 24px 24px' }}>Você ainda não tem indicações diretas cadastradas.</p>
+              {downline.length === 0 ? (
+                <p className="muted" style={{ padding: '0 24px 24px' }}>Nenhuma pessoa nos níveis remunerados da sua árvore.</p>
               ) : (
-                referrals.map((person) => (
-                  <div className="referral-detail-row" key={person.name}>
+                downline.map((person) => (
+                  <div className="referral-detail-row" key={`${person.userId}-${person.level}`}>
                     <span className="row-avatar">{person.name.split(' ').slice(0, 2).map((p) => p[0]).join('')}</span>
                     <div>
                       <strong>{person.name}</strong>
-                      <p>Indicação de 1º nível · {formatMoney(person.base)} recebidos</p>
+                      <p>{person.level}º nível · {formatMoney(person.base)} recebidos · {formatPercent(person.rate)}
+                        {person.pagamentos === 0 ? ' · Sem pagamentos nesta competência' : ` · ${person.pagamentos} pagamentos`}</p>
                     </div>
                     <strong>{formatMoney(person.amount)}</strong>
                   </div>
@@ -200,11 +189,11 @@ export default async function ComissoesPage({
               <div className="referral-rule">
                 <div>
                   <Icon name="people" />
-                  <strong>Uma indicação. Um nível de comissão.</strong>
+                  <strong>Todos os níveis remunerados, inclusive sem pagamentos.</strong>
                 </div>
                 <p>
-                  Você recebe {formatPercent(referralRule?.rate ?? 0.02)} sobre os pagamentos das carteiras indicadas diretamente por você.
-                  As indicações feitas por essas pessoas não entram na sua base.
+                  Cada carteira abaixo aparece com a taxa do seu nível. Quando não houve recebimentos no mês,
+                  a base e a comissão ficam em {formatMoney(0)}.
                 </p>
               </div>
             </>

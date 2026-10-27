@@ -194,13 +194,29 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
             return new HinovaBoletoPagina(0, 0, filtro.InicioPaginacao, []);
         response.EnsureSuccessStatusCode();
 
-        using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
-        var root = doc.RootElement;
-        var boletos = root.TryGetProperty("boletos", out var boletosEl) && boletosEl.ValueKind == JsonValueKind.Array
-            ? boletosEl.EnumerateArray().Select(ParseBoleto).ToList()
-            : [];
-        return new HinovaBoletoPagina(
-            GetFlexInt(root, "numero_paginas"), GetFlexInt(root, "total_registros"), GetFlexInt(root, "pagina_corrente"), boletos);
+        JsonDocument doc;
+        try
+        {
+            doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        }
+        catch (JsonException ex)
+        {
+            // Hinova sometimes sends a plain-text error with HTTP 200. Treat it as a
+            // transient upstream failure, never as an empty/successful reconciliation.
+            throw new HttpRequestException("Resposta inválida da Hinova ao consultar boletos.", ex, HttpStatusCode.BadGateway);
+        }
+        using (doc)
+        {
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("boletos", out var boletosEl)
+                || boletosEl.ValueKind != JsonValueKind.Array)
+                throw new HttpRequestException("Resposta da Hinova sem a lista de boletos.", null, HttpStatusCode.BadGateway);
+            var boletos = boletosEl.EnumerateArray().Select(ParseBoleto).ToList();
+            var paginas = GetFlexInt(root, "numero_paginas");
+            if (boletos.Count > 0 && paginas < 1)
+                throw new HttpRequestException("Resposta da Hinova sem paginação válida.", null, HttpStatusCode.BadGateway);
+            return new HinovaBoletoPagina(paginas, GetFlexInt(root, "total_registros"), GetFlexInt(root, "pagina_corrente"), boletos);
+        }
     }
 
     public async Task<HinovaBoleto?> BuscarBoletoAsync(string tokenUsuario, string nossoNumero, CancellationToken ct)

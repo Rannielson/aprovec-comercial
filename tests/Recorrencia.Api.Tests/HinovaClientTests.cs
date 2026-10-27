@@ -22,6 +22,19 @@ public class HinovaClientTests
         return (new HinovaClient(http), handler);
     }
 
+    [Theory]
+    [InlineData("Ocorreu um erro no servidor")]
+    [InlineData("{\"mensagem\":\"Erro temporário\"}")]
+    [InlineData("[]")]
+    public async Task ListarBoletos_rejects_upstream_errors_with_HTTP_200_as_retryable_bad_gateway(string body)
+    {
+        var (client, _) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        { Content = new StringContent(body,System.Text.Encoding.UTF8,"application/json") });
+        var error=await Assert.ThrowsAsync<HttpRequestException>(() => client.ListarBoletosPeriodoAsync("token",
+            new HinovaBoletoPeriodoFiltro(new DateOnly(2026,10,1),new DateOnly(2026,10,31),500,0),CancellationToken.None));
+        Assert.Equal(HttpStatusCode.BadGateway,error.StatusCode);
+    }
+
     [Fact]
     public async Task BuscarBoleto_parses_detail_field_names_and_iso_payment()
     {

@@ -334,6 +334,8 @@ public static class HinovaEndpoints
                     .Distinct()
                     .ToList();
 
+                if (vendorIds.Count != 1)
+                    await ReconcileExistingBoletoAsync(tx, tenant, boleto);
                 if (vendorIds.Count == 0)
                 {
                     semVinculo++;
@@ -404,7 +406,6 @@ public static class HinovaEndpoints
         if (incluirVencimentos)
         {
             mesesVencimento.Add(mesInicio);
-            if (ignorarImportados)
             {
                 var anteriores = await db.InTenantAsync(tenant, actor, tx => tx.QueryAsync<DateOnly>(
                     """
@@ -436,6 +437,9 @@ public static class HinovaEndpoints
             {
             foreach (var boleto in lote)
             {
+                // Settlement/closure of an existing debt must not depend on today's
+                // volunteer mapping, vehicle value or commission attribution.
+                await ReconcileExistingBoletoAsync(tx, tenant, boleto);
                 var vendorIds = boleto.Veiculos
                     .Select(v => v.CodigoVoluntario)
                     .Where(c => c is not null && userIdPorCodigo.ContainsKey(c))
@@ -450,7 +454,7 @@ public static class HinovaEndpoints
                 // Only a genuine payment date makes it received.
                 var isPaid = boleto.DataPagamento is not null && boleto.ValorPagamento > 0;
                 var status = isPaid ? "recebido"
-                    : boleto.SituacaoBoleto?.Contains("CANCEL", StringComparison.OrdinalIgnoreCase) == true ? "cancelado"
+                    : HinovaBoletoStatus.IsClosed(boleto) ? "cancelado"
                     : boleto.Vencimento < hoje ? "atraso" : "a_vencer";
                 var placa = boleto.Veiculos.FirstOrDefault(v => v.Placa is not null)?.Placa;
                 var boletoId = await tx.ExecuteScalarAsync<Guid>(
@@ -510,6 +514,21 @@ public static class HinovaEndpoints
 
         return new ImportarBoletosResponse(todosBoletos.Count, importados, semVinculo, conflito, naoPago,
             boletosPorVencimento.Count, vencimentoVinculados);
+    }
+
+    private static async Task ReconcileExistingBoletoAsync(Tx tx, Guid tenant, HinovaBoleto boleto)
+    {
+        var paid = HinovaBoletoStatus.IsPaid(boleto);
+        if (string.IsNullOrWhiteSpace(boleto.NossoNumero) || (!paid && !HinovaBoletoStatus.IsClosed(boleto))) return;
+        await tx.ExecuteAsync("""
+            update boletos set status = @status,
+                valor = case when @paid then @valor else valor end,
+                pago_em = case when @paid then @pagamento else pago_em end
+             where tenant_id = @tenant and hinova_nosso_numero = @numero
+               and status <> 'recebido'
+            """, new { tenant, numero = boleto.NossoNumero, paid,
+                status = paid ? "recebido" : "cancelado", valor = boleto.ValorPagamento,
+                pagamento = boleto.DataPagamento });
     }
 
     private static async Task HoldPreviouslyImportedBoletoAsync(Tx tx, Guid tenant, string nossoNumero, string reason)

@@ -42,6 +42,8 @@ public sealed class DevFakeHinovaClient : IHinovaClient
 
     // No fake boleto history is modeled -- dev/E2E only exercise the tree-building flow, not
     // boleto import, so an always-empty page is the honest stand-in rather than fabricated data.
+    public Task<HinovaBoleto?> BuscarBoletoAsync(string tokenUsuario, string nossoNumero, CancellationToken ct) => Task.FromResult<HinovaBoleto?>(null);
+
     public Task<HinovaBoletoPagina> ListarBoletosPeriodoAsync(string tokenUsuario, HinovaBoletoPeriodoFiltro filtro, CancellationToken ct) =>
         Task.FromResult(new HinovaBoletoPagina(0, 0, 0, []));
 }

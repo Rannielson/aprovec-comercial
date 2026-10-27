@@ -59,6 +59,82 @@ public class HinovaBoletoImportTests(ApiFixture api)
     }
 
     [Fact]
+    public async Task Existing_overdue_boleto_is_settled_even_without_a_current_volunteer_mapping()
+    {
+        var s=await api.SeedAsync();
+        var admin=await LoginAsAdminAsync(s);
+        await ConfigureCredentialsAsync(admin);
+        var numero="unmapped-paid-"+Guid.NewGuid();
+        await api.SqlAsync("""
+            insert into boletos(tenant_id,participante_id,associado_ref,associado_nome,valor,status,vencimento,hinova_nosso_numero)
+            values(@tenant,@owner,'999','Teste',100,'atraso','2026-09-05',@numero)
+            """,new {tenant=s.TenantId,owner=s.Joao,numero});
+        SetPage(api,Boleto(numero,100m,"2026-10-27T09:00:00-03:00",("999","ABC1D23")));
+        await admin.PostJsonAsync<ImportarBoletosResponseDto>("/integracoes/hinova/boletos/importar",new {competencia="2026-10"});
+        Assert.Equal("recebido",await api.SqlScalarAsync<string>("select status from boletos where tenant_id=@tenant and hinova_nosso_numero=@numero",new {tenant=s.TenantId,numero}));
+    }
+
+    [Fact]
+    public async Task Scheduled_sync_retries_after_authentication_failure_instead_of_abandoning_the_day()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsAdminAsync(s);
+        await ConfigureCredentialsAsync(admin);
+        var id=Guid.NewGuid();
+        api.Hinova.RejectAuth=true;
+        try
+        {
+            await api.SqlAsync("""
+                insert into hinova_boleto_sync_jobs(id,tenant_id,requested_by,competencia,pagamento_inicio,pagamento_fim,agendado_para)
+                values(@id,@tenant,@actor,'2026-10-01','2026-10-22','2026-10-27','2026-10-27')
+                """,new {id,tenant=s.TenantId,actor=s.Admin});
+            SyncJobDto? job=null;
+            for(var attempt=0;attempt<100;attempt++)
+            {
+                job=await admin.GetJsonAsync<SyncJobDto>($"/integracoes/hinova/boletos/syncs/{id}");
+                if(job.Fase=="aguardando_nova_tentativa")break;
+                await Task.Delay(100);
+            }
+            Assert.Equal("queued",job?.Status);
+            Assert.Equal("aguardando_nova_tentativa",job?.Fase);
+            Assert.Equal(1,await api.SqlScalarAsync<int>("select tentativas from hinova_boleto_sync_jobs where id=@id",new {id}));
+            api.Hinova.RejectAuth=false;
+            await api.SqlAsync("update hinova_boleto_sync_jobs set retry_after=now()-interval '1 second' where id=@id",new {id});
+            for(var attempt=0;attempt<100;attempt++)
+            {
+                job=await admin.GetJsonAsync<SyncJobDto>($"/integracoes/hinova/boletos/syncs/{id}");
+                if(job.Status=="completed")break;
+                await Task.Delay(100);
+            }
+            Assert.Equal("completed",job?.Status);
+            Assert.Equal(2,await api.SqlScalarAsync<int>("select tentativas from hinova_boleto_sync_jobs where id=@id",new {id}));
+        }
+        finally{api.Hinova.RejectAuth=false;}
+    }
+
+    [Theory]
+    [InlineData("EXCLUIDO")]
+    [InlineData("EXCLUÍDO")]
+    [InlineData("CANCELADO")]
+    public async Task Sync_removes_excluded_boletos_from_overdue_wallet(string situation)
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsAdminAsync(s);
+        await ConfigureCredentialsAsync(admin);
+        await ApiClient.ExpectAsync(await admin.PostAsync("/integracoes/hinova/mapeamentos",
+            new { userId=s.Joao,codigoVoluntario="101",nomeHinova="Consultor",cpfHinova="11122233344" }),HttpStatusCode.Created);
+        var numero = "closed-"+Guid.NewGuid();
+        var open = ParseViaClient(Boleto(numero,100m,null,("101","ABC1D23")));
+        api.Hinova.BoletosPaginas.Clear();
+        api.Hinova.BoletosPaginas.Add(new HinovaBoletoPagina(1,1,0,[open]));
+        await admin.PostJsonAsync<ImportarBoletosResponseDto>("/integracoes/hinova/boletos/importar",new {competencia="2026-09"});
+        api.Hinova.BoletosPaginas.Clear();
+        api.Hinova.BoletosPaginas.Add(new HinovaBoletoPagina(1,1,0,[open with {SituacaoBoleto=situation}]));
+        await admin.PostJsonAsync<ImportarBoletosResponseDto>("/integracoes/hinova/boletos/importar",new {competencia="2026-09"});
+        Assert.Equal("cancelado",await api.SqlScalarAsync<string>("select status from boletos where tenant_id=@tenant and hinova_nosso_numero=@numero",new {tenant=s.TenantId,numero}));
+    }
+
+    [Fact]
     public async Task Admin_can_sync_selected_payment_month_in_background_and_repeat_without_duplicates()
     {
         var s = await api.SeedAsync();

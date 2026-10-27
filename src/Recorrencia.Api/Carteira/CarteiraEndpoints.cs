@@ -42,6 +42,13 @@ public static class CarteiraEndpoints
         public byte[] TokenSgaEnc { get; set; } = [];
     }
 
+    private sealed class ContactBoletoRow
+    {
+        public string AssociadoRef { get; set; } = "";
+        public string? HinovaNossoNumero { get; set; }
+        public string Status { get; set; } = "";
+    }
+
     private static async Task<IResult> WhatsappAsync(Guid id, RequestContext request, Database db,
         IHinovaClient hinova, AesGcmCipher cipher, CancellationToken ct)
     {
@@ -49,14 +56,19 @@ public static class CarteiraEndpoints
         var user = request.RequireUser();
         // Check the same wallet scope as the list before touching Hinova credentials. An ID from
         // another consultant's wallet (or another tenant) must not reveal its contact.
-        var associadoRef = await db.InTenantAsync(tenant, user, tx => tx.QuerySingleOrDefaultAsync<string>(
+        var local = await db.InTenantAsync(tenant, user, tx => tx.QuerySingleOrDefaultAsync<ContactBoletoRow>(
             """
-            select b.associado_ref from boletos b
+            select b.associado_ref, b.hinova_nosso_numero, b.status from boletos b
              where b.tenant_id = @tenant and b.id = @id
                and b.participante_id = any(app.carteira_owner_ids())
             """, new { tenant, id }), ct);
-        if (string.IsNullOrWhiteSpace(associadoRef))
+        if (local is null || string.IsNullOrWhiteSpace(local.AssociadoRef))
             throw new ApiProblem(StatusCodes.Status404NotFound, "carteira.boleto_not_found");
+
+        if (local.Status is "recebido" or "cancelado")
+            throw new ApiProblem(StatusCodes.Status409Conflict, "carteira.cobranca_bloqueada");
+        if (string.IsNullOrWhiteSpace(local.HinovaNossoNumero))
+            throw new ApiProblem(StatusCodes.Status409Conflict, "carteira.cobranca_nao_verificada");
 
         // The integration credentials are admin-only under RLS. The server reads them through its
         // privileged connection only after the scoped boleto check above; they never reach the UI.
@@ -77,7 +89,33 @@ public static class CarteiraEndpoints
             throw new ApiProblem(StatusCodes.Status503ServiceUnavailable, "hinova.credenciais_invalidas");
         }
 
-        var phone = await hinova.BuscarContatoAssociadoAsync(token, associadoRef, ct);
+        // Recheck the exact boleto at click time. Any upstream failure stops the redirect.
+        var live = await hinova.BuscarBoletoAsync(token, local.HinovaNossoNumero, ct);
+        if (live is null || live.NossoNumero != local.HinovaNossoNumero || live.CodigoAssociado != local.AssociadoRef)
+            throw new ApiProblem(StatusCodes.Status409Conflict, "carteira.cobranca_nao_verificada");
+        if (HinovaBoletoStatus.IsPaid(live) || HinovaBoletoStatus.IsClosed(live))
+        {
+            // Scope was checked above. Consultants cannot write boletos under RLS, so update
+            // only this previously authorized ID through the privileged connection.
+            await db.AsPlatformAsync(tenant, async tx =>
+            {
+                await tx.ExecuteAsync("""
+                    update boletos set status = @status,
+                        valor = case when @paid then @valor else valor end,
+                        pago_em = case when @paid then @pagamento else pago_em end,
+                        commission_hold_reason = case when @paid then null else commission_hold_reason end
+                    where tenant_id = @tenant and id = @id and status <> 'recebido'
+                    """, new { tenant, id, paid = HinovaBoletoStatus.IsPaid(live),
+                        status = HinovaBoletoStatus.IsPaid(live) ? "recebido" : "cancelado",
+                        valor = live.ValorPagamento, pagamento = live.DataPagamento });
+                return 0;
+            }, ct);
+            throw new ApiProblem(StatusCodes.Status409Conflict, "carteira.cobranca_bloqueada");
+        }
+        if (!HinovaBoletoStatus.CanCollect(live))
+            throw new ApiProblem(StatusCodes.Status409Conflict, "carteira.cobranca_nao_verificada");
+
+        var phone = await hinova.BuscarContatoAssociadoAsync(token, local.AssociadoRef, ct);
         if (phone is null)
             throw new ApiProblem(StatusCodes.Status404NotFound, "carteira.contato_indisponivel");
         return Results.Ok(new { telefone = phone });

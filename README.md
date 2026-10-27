@@ -6,6 +6,8 @@ O sistema inclui árvore comissionada, regras de corte por contrato, planos de r
 
 A integração Hinova tem sincronização manual e automática com acompanhamento de progresso. A rotina diária começa às 5h (`America/Recife`), busca pagamentos do dia e dos cinco dias anteriores e depois atualiza os vencimentos do mês atual e dos meses anteriores com pendências já importadas. Os boletos são identificados pelo nosso número, sem duplicação. Boletos em aberto não geram comissão; demonstrativos confirmados mantêm sua memória de cálculo.
 
+Para evitar cobranças indevidas, boletos excluídos, cancelados ou estornados na Hinova saem dos atrasados. Antes de abrir o WhatsApp, a API consulta o boleto pelo nosso número: pagamento confirmado atualiza a carteira e bloqueia o atalho; situações desconhecidas e falhas de consulta também bloqueiam o atalho. A sincronização diária realiza até três tentativas, com intervalo de 15 minutos em caso de falha. A sincronização manual também revisita meses anteriores com pendências.
+
 Os cadastros por indicação são processados em fila. Voluntários já existentes na Hinova podem ser vinculados pelo administrador; os convites de acesso são enviados por e-mail. O superadministrador da plataforma usa `/admin`, e os usuários do tenant usam `/login`.
 
 ## Mockup original

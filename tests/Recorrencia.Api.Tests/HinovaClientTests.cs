@@ -23,6 +23,21 @@ public class HinovaClientTests
     }
 
     [Fact]
+    public async Task BuscarBoleto_parses_detail_field_names_and_iso_payment()
+    {
+        var (client, handler) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new { nosso_numero = "123", valor_boleto = "100.00", valor_pagamento = "100.00",
+                codigo_associado = "99", descricao_situacao_boleto = "BAIXADO", data_pagamento = "2026-10-27T10:20:00-03:00" })
+        });
+        var boleto = await client.BuscarBoletoAsync("token", "123", CancellationToken.None);
+        Assert.NotNull(boleto);
+        Assert.True(HinovaBoletoStatus.IsPaid(boleto));
+        Assert.Equal("BAIXADO", boleto.SituacaoBoleto);
+        Assert.Equal("/api/sga/v2/buscar/boleto/123", handler.LastRequest!.RequestUri!.AbsolutePath);
+    }
+
+    [Fact]
     public async Task Autenticar_sends_the_static_token_and_returns_token_usuario()
     {
         var (client, handler) = NewClient(_ => new HttpResponseMessage(HttpStatusCode.OK)

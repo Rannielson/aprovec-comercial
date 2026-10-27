@@ -69,6 +69,12 @@ export default async function CarteiraPage({
           <p className="muted">Consulte os valores, vencimentos e fale com seus associados.</p>
         </div>
 
+        {aviso === 'cobranca-bloqueada' && (
+          <p className="wallet-alert" role="alert">Cobrança bloqueada: o boleto foi pago, encerrado ou não teve a pendência confirmada na Hinova. Confira a carteira atualizada.</p>
+        )}
+        {aviso === 'verificacao-indisponivel' && (
+          <p className="wallet-alert" role="alert">Não foi possível confirmar a pendência na Hinova. O WhatsApp foi bloqueado para evitar uma cobrança indevida. Tente novamente mais tarde.</p>
+        )}
         {aviso === 'contato-indisponivel' && (
           <p className="wallet-alert" role="alert">Não foi possível abrir o WhatsApp. O associado pode estar sem um contato válido na Hinova.</p>
         )}

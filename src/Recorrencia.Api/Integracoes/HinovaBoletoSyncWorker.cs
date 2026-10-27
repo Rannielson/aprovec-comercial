@@ -74,12 +74,12 @@ public sealed class HinovaBoletoSyncWorker(IServiceScopeFactory scopes, ILogger<
                         """
                         select id, tenant_id, requested_by, competencia, pagamento_inicio, pagamento_fim, agendado_para, somente_vencimentos
                           from hinova_boleto_sync_jobs
-                         where status = 'queued'
+                         where status = 'queued' and (retry_after is null or retry_after <= now())
                          order by requested_at for update skip locked limit 1
                         """);
                     if (candidate is not null)
                         await tx.ExecuteAsync(
-                            "update hinova_boleto_sync_jobs set status = 'running', fase = 'iniciando', started_at = now() where id = @id",
+                            "update hinova_boleto_sync_jobs set status = 'running', fase = 'iniciando', started_at = now(), finished_at = null, tentativas = tentativas + 1, retry_after = null where id = @id",
                             new { id = candidate.Id });
                     return candidate;
                 }, stoppingToken);
@@ -159,7 +159,10 @@ public sealed class HinovaBoletoSyncWorker(IServiceScopeFactory scopes, ILogger<
                         await tx.ExecuteAsync(
                             """
                             update hinova_boleto_sync_jobs
-                               set status = 'failed', fase = 'falhou', finished_at = now(), error_code = @code
+                               set status = case when agendado_para is not null and tentativas < 3 then 'queued' else 'failed' end,
+                                   fase = case when agendado_para is not null and tentativas < 3 then 'aguardando_nova_tentativa' else 'falhou' end,
+                                   retry_after = case when agendado_para is not null and tentativas < 3 then now() + interval '15 minutes' else null end,
+                                   finished_at = now(), error_code = @code
                              where id = @id
                             """, new { job.Id, code });
                         return 0;

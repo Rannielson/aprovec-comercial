@@ -13,6 +13,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     if (error instanceof ApiError && error.status === 401)
       return new Response(null, { status: 303, headers: { Location: '/login' } });
     if (!(error instanceof ApiError) && !(error instanceof Error)) throw error;
-    return new Response(null, { status: 303, headers: { Location: '/carteira?aviso=contato-indisponivel' } });
+    const aviso = error instanceof ApiError && error.status === 409 ? 'cobranca-bloqueada' : 'verificacao-indisponivel';
+    return new Response(null, { status: 303, headers: { Location: `/carteira?aviso=${aviso}`, 'Cache-Control': 'no-store' } });
   }
 }

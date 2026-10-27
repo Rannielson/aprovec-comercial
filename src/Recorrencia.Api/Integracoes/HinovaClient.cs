@@ -203,6 +203,17 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
             GetFlexInt(root, "numero_paginas"), GetFlexInt(root, "total_registros"), GetFlexInt(root, "pagina_corrente"), boletos);
     }
 
+    public async Task<HinovaBoleto?> BuscarBoletoAsync(string tokenUsuario, string nossoNumero, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "buscar/boleto/" + Uri.EscapeDataString(nossoNumero));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
+        using var response = await http.SendAsync(request, ct);
+        if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NotAcceptable) return null;
+        response.EnsureSuccessStatusCode();
+        using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        return ParseBoleto(doc.RootElement);
+    }
+
     private static HinovaBoleto ParseBoleto(JsonElement el)
     {
         var veiculos = el.TryGetProperty("veiculos", out var veiculosEl) && veiculosEl.ValueKind == JsonValueKind.Array
@@ -220,8 +231,8 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
             ParseBrDate(GetFlexString(el, "data_pagamento")),
             veiculos,
             GetFlexString(el, "codigo_tipo_boleto"),
-            GetFlexString(el, "tipo_boleto"),
-            GetFlexString(el, "situacao_boleto"));
+            GetFlexString(el, "tipo_boleto") ?? GetFlexString(el, "descricao_tipo_boleto"),
+            GetFlexString(el, "situacao_boleto") ?? GetFlexString(el, "descricao_situacao_boleto"));
     }
 
     // The real API returns data_pagamento/data_vencimento as ISO (yyyy-MM-dd), not the

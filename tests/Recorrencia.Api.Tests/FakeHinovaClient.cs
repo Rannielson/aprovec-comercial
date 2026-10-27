@@ -4,6 +4,9 @@ namespace Recorrencia.Api.Tests;
 
 public sealed class FakeHinovaClient : IHinovaClient
 {
+    public Dictionary<string, HinovaBoleto> BoletosPorNumero { get; } = new();
+    public Task<HinovaBoleto?> BuscarBoletoAsync(string tokenUsuario, string nossoNumero, CancellationToken ct) => Task.FromResult(BoletosPorNumero.GetValueOrDefault(nossoNumero));
+
     public bool RejectAuth { get; set; }
     public List<HinovaVoluntario> Voluntarios { get; } =
     [

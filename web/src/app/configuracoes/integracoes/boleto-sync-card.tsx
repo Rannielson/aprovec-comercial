@@ -18,6 +18,8 @@ function progressInfo(job: HinovaBoletoSync) {
   switch (job.fase) {
     case 'aguardando_nova_tentativa':
       return { title: 'Consulta interrompida · aguardando nova tentativa automática', current: 0, total: null, verb: 'analisados' };
+    case 'buscando_tarifas':
+      return { title: 'Conferindo tarifas bancárias e atualizando a comissão líquida', current: 0, total: null, verb: 'consultados' };
     case 'buscando_pagamentos':
       return { title: 'Consultando pagamentos na Hinova', current: job.pagamentosConsultados, total: job.totalBoletos, verb: 'consultados' };
     case 'importando_pagamentos':

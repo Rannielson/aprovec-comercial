@@ -1,3 +1,4 @@
+import { FeeReview } from '../components/fee-review';
 import { notFound } from 'next/navigation';
 import { AppShell } from '../app-shell';
 import { apiFetch, currentHost } from '@/lib/api';
@@ -66,6 +67,7 @@ export default async function ComissoesPage({
           <p className="muted">Veja como cada recebimento contribui para o seu resultado.</p>
         </div>
 
+        <FeeReview month={month} />
         <section className="commission-band">
           <div className="commission-total">
             <span className="overline">Comissão apurada · {formatCompetencia(month)}</span>
@@ -110,7 +112,7 @@ export default async function ComissoesPage({
             <>
               <div className="source-summary">
                 <div>
-                  <span>Base recebida</span>
+                  <span>Base líquida recebida</span>
                   <strong>{formatMoney(ownRule?.base ?? 0)}</strong>
                 </div>
                 <span className="operator">×</span>
@@ -133,7 +135,7 @@ export default async function ComissoesPage({
                       <tr>
                         <th>Associado</th>
                         <th>Pagamento</th>
-                        <th className="number">Base paga</th>
+                        <th className="number">Base líquida</th>
                         <th className="number">Comissão</th>
                       </tr>
                     </thead>

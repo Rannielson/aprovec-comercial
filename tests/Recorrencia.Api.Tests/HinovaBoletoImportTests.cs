@@ -570,6 +570,7 @@ public class HinovaBoletoImportTests(ApiFixture api)
         await ApiClient.ExpectAsync(
             await admin.PostAsync("/integracoes/hinova/mapeamentos", new { userId = s.Joao, codigoVoluntario = "101", nomeHinova = "Ana Paula Ferreira", cpfHinova = "11122233344" }),
             HttpStatusCode.Created);
+        api.Hinova.Tarifas.Add(new HinovaTarifaAlteracao("777003-rerun", 1, new DateTimeOffset(2026, 9, 10, 0, 0, 0, TimeSpan.FromHours(-3)), 0m));
         SetPage(api, Boleto("777003-rerun", 300.00m, "10/09/2026", ("101", "AAA1A11"), ("102", "BBB2B22")));
 
         var first = await admin.PostJsonAsync<ImportarBoletosResponseDto>("/integracoes/hinova/boletos/importar", new { competencia = "2026-09" });
@@ -605,6 +606,7 @@ public class HinovaBoletoImportTests(ApiFixture api)
         await ApiClient.ExpectAsync(
             await admin.PostAsync("/integracoes/hinova/mapeamentos", new { userId = s.Joao, codigoVoluntario = "101", nomeHinova = "Ana Paula Ferreira", cpfHinova = "11122233344" }),
             HttpStatusCode.Created);
+        api.Hinova.Tarifas.Add(new HinovaTarifaAlteracao("777004-rerun", 2, new DateTimeOffset(2026, 9, 10, 0, 0, 0, TimeSpan.FromHours(-3)), 0m));
         SetPage(api, Boleto("777004-rerun", 300.00m, "10/09/2026", ("101", "AAA1A11")));
         Assert.Equal(1, (await admin.PostJsonAsync<ImportarBoletosResponseDto>(
             "/integracoes/hinova/boletos/importar", new { competencia = "2026-09" })).Importados);

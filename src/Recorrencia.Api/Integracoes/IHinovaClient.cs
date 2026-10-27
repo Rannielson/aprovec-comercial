@@ -4,6 +4,7 @@ namespace Recorrencia.Api.Integracoes;
 
 public interface IHinovaClient
 {
+    Task<HinovaTarifaPagina> ListarAlteracoesTarifaAsync(string tokenUsuario, DateOnly dia, int pagina, int tamanho, CancellationToken ct);
     Task<string> AutenticarAsync(string usuario, string senha, string tokenSga, CancellationToken ct);
     Task<IReadOnlyList<HinovaVoluntario>> ListarVoluntariosAsync(string tokenUsuario, CancellationToken ct);
     Task<HinovaVoluntarioDetalhe?> BuscarVoluntarioAsync(string tokenUsuario, string cpfOuCodigo, CancellationToken ct);
@@ -66,3 +67,6 @@ public sealed class HinovaAuthException(HttpStatusCode statusCode = HttpStatusCo
         return new HinovaAuthException(status, limit, retryAfter);
     }
 }
+
+public sealed record HinovaTarifaAlteracao(string NossoNumero, long CodigoAlteracao, DateTimeOffset DataAlteracao, decimal? Valor);
+public sealed record HinovaTarifaPagina(int Total, IReadOnlyList<HinovaTarifaAlteracao> Alteracoes);

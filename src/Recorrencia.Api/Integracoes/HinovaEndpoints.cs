@@ -493,6 +493,10 @@ public static class HinovaEndpoints
             await ReportAsync("importando_vencimentos");
         }
 
+        await ReportAsync("buscando_tarifas");
+        await HinovaTarifaSync.SyncAsync(db, hinova, tenant, actor, tokenUsuario, inicioPagamento, hoje, ct,
+            () => ReportAsync("buscando_tarifas"));
+
         await db.InTenantAsync(tenant, actor, async tx =>
         {
 

@@ -28,6 +28,7 @@ const messages: Record<string, string> = {
   'hinova.sync_future_month': 'Selecione o mês atual ou um mês anterior.',
   'hinova.campos_incompletos': 'Preencha todos os dados do voluntário antes de confirmar.',
   'fechamento.competencia_not_closed': 'Só é possível confirmar competências já encerradas.',
+  'fechamento.tarifas_pendentes': 'Há boletos pagos sem tarifa bancária confirmada. Confira as pendências na carteira antes de confirmar o fechamento.',
   'fechamento.already_confirmed': 'Essa competência já foi confirmada.',
   'fechamento.requires_full_visibility': 'Você não tem permissão para confirmar o fechamento.',
   'fechamento.invalid_transition': 'Confirme a competência antes de provisionar.',

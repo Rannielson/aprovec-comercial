@@ -7,6 +7,8 @@ namespace Recorrencia.Api.Integracoes;
 /// </summary>
 public sealed class DevFakeHinovaClient : IHinovaClient
 {
+    public Task<HinovaTarifaPagina> ListarAlteracoesTarifaAsync(string tokenUsuario, DateOnly dia, int pagina, int tamanho, CancellationToken ct) => Task.FromResult(new HinovaTarifaPagina(0, []));
+
     public static readonly IReadOnlyList<HinovaVoluntario> Voluntarios =
     [
         new HinovaVoluntario("101", "Ana Paula Ferreira", "11122233344", "(31)99111-2233", ["Cooperativa Central"]),

@@ -4,7 +4,7 @@ import { AutoRefresh } from '../components/auto-refresh';
 import { LiveFilterInput } from '../components/live-filter-input';
 import { apiFetch, currentHost } from '@/lib/api';
 import { Icon } from '../components/app-icon';
-import { formatDate, formatMoney } from '@/lib/format';
+import { formatDate, formatMoney, formatCompetencia, isCompetencia } from '@/lib/format';
 import type { Me, Wallet } from '@/lib/types';
 
 const STATUS_TABS: { value: string; label: string }[] = [
@@ -17,7 +17,7 @@ const STATUS_TABS: { value: string; label: string }[] = [
 export default async function CarteiraPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; query?: string; page?: string; aviso?: string }>;
+  searchParams: Promise<{ status?: string; query?: string; page?: string; tarifas?: string; competencia?: string; aviso?: string }>;
 }) {
   const host = await currentHost();
   if (host.kind !== 'tenant') notFound();
@@ -36,13 +36,17 @@ export default async function CarteiraPage({
     );
   }
 
-  const { status, query, page, aviso } = await searchParams;
+  const { status, query, page, tarifas, competencia, aviso } = await searchParams;
   const activeStatus = status && status !== 'todos' ? status : 'todos';
+  const paymentMonth = isCompetencia(competencia) ? competencia : null;
+  const onlyPendingFees = tarifas === 'pendentes';
   const currentPage = Math.max(1, Number(page) || 1);
 
   const apiParams = new URLSearchParams();
   if (activeStatus !== 'todos') apiParams.set('status', activeStatus);
   if (query) apiParams.set('query', query);
+  if (onlyPendingFees) apiParams.set('tarifas', 'pendentes');
+  if (paymentMonth) apiParams.set('competencia', paymentMonth);
   apiParams.set('page', String(currentPage));
 
   const wallet = await apiFetch<Wallet>(`/carteira?${apiParams.toString()}`);
@@ -54,6 +58,8 @@ export default async function CarteiraPage({
     const pg = overrides.page ?? currentPage;
     if (s !== 'todos') p.set('status', s);
     if (query) p.set('query', query);
+    if (onlyPendingFees) p.set('tarifas', 'pendentes');
+    if (paymentMonth) p.set('competencia', paymentMonth);
     if (pg !== 1) p.set('page', String(pg));
     const qs = p.toString();
     return qs ? `/carteira?${qs}` : '/carteira';
@@ -79,6 +85,7 @@ export default async function CarteiraPage({
           <p className="wallet-alert" role="alert">Não foi possível abrir o WhatsApp. O associado pode estar sem um contato válido na Hinova.</p>
         )}
 
+        {onlyPendingFees && <p className="wallet-alert" role="status">Exibindo pagamentos{paymentMonth ? ` de ${formatCompetencia(paymentMonth)}` : ''} com tarifa pendente de conferência. <a href="/carteira?status=recebido">Ver todos os recebidos</a></p>}
         <section className="card wallet-panel">
           <div className="wallet-toolbar">
             <div className="filter-tabs">
@@ -95,6 +102,8 @@ export default async function CarteiraPage({
             </div>
             <form className="search-field" method="get">
               <Icon name="search" />
+              {paymentMonth && <input type="hidden" name="competencia" value={paymentMonth} />}
+              {onlyPendingFees && <input type="hidden" name="tarifas" value="pendentes" />}
               {activeStatus !== 'todos' && <input type="hidden" name="status" value={activeStatus} />}
               <LiveFilterInput key={`${activeStatus}:${query ?? ''}`} type="search" name="query" placeholder="Buscar por nome" initialValue={query ?? ''} aria-label="Buscar associado" />
             </form>
@@ -122,8 +131,14 @@ export default async function CarteiraPage({
                 ) : (
                   wallet.items.map((item) => (
                     <tr key={item.id}>
-                      <td className="wallet-name">{item.associadoNome}</td>
-                      <td className="number amount" data-label="Valor">{formatMoney(item.valor)}</td>
+                      <td className="wallet-name">{item.associadoNome}
+                        {item.tarifaPendente && <><br /><span className="badge warning">Tarifa pendente de conferência</span></>}
+                      </td>
+                      <td className="number amount" data-label="Valor">{formatMoney(item.valor)}
+                        {item.status === 'recebido' && item.tarifaBancaria != null && item.valorLiquido != null && <>
+                          <br /><small className="muted">Tarifa {formatMoney(item.tarifaBancaria)} · Líquido {formatMoney(item.valorLiquido)}</small>
+                        </>}
+                      </td>
                       <td data-label="Vencimento">{formatDate(item.vencimento)}</td>
                       <td className="wallet-contact-col">
                         <a className="whatsapp-link" href={`/carteira/whatsapp/${item.id}`}

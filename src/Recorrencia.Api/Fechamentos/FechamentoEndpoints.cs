@@ -91,6 +91,12 @@ public static class FechamentoEndpoints
                 throw new ApiProblem(StatusCodes.Status409Conflict, "fechamento.already_confirmed");
 
             var beneficiaries = await tx.ExecuteScalarAsync<Guid[]>("select app.commission_beneficiaries()") ?? [];
+            // Hold source rows until the snapshot is committed so a concurrent sync cannot
+            // change a fee between the completeness check and the commission calculation.
+            await tx.QueryAsync<Guid>("select id from boletos where tenant_id=@tenant and status='recebido' and pago_em>=@month and pago_em<@fim for share",
+                new { tenant, month, fim = month.AddMonths(1) });
+            if (await tx.ExecuteScalarAsync<int>("select count(*)::int from app.commission_pending_fees(@month,@beneficiaries)", new { month, beneficiaries }) > 0)
+                throw new ApiProblem(StatusCodes.Status409Conflict, "fechamento.tarifas_pendentes");
             var entries = await CommissionService.CalculateLiveAsync(tx, month, beneficiaries);
 
             await tx.ExecuteAsync(

@@ -47,10 +47,21 @@ public static class CommissionEndpoints
 
     public static void MapCommissionEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapGet("/commissions/{competencia}/pending-fees", PendingFeesAsync).RequirePermission("comissoes.visualizar");
         app.MapGet("/commissions/{competencia}", SummaryAsync).RequirePermission("comissoes.visualizar");
         app.MapGet("/commissions/{competencia}/entries", EntriesAsync).RequirePermission("comissoes.visualizar");
         app.MapGet("/commissions/{competencia}/downline", DownlineAsync).RequirePermission("comissoes.visualizar");
         app.MapGet("/commissions/{competencia}/lost", LostAsync).RequirePermission("comissoes.visualizar");
+    }
+
+    private static async Task<IResult> PendingFeesAsync(string competencia, RequestContext request, Database db, CancellationToken ct)
+    {
+        var month = CommissionService.ParseCompetencia(competencia);
+        var count = await db.InTenantAsync(request.RequireTenant(), request.RequireUser(), async tx => {
+            var beneficiaries = await tx.ExecuteScalarAsync<Guid[]>("select app.commission_beneficiaries()") ?? [];
+            return await tx.ExecuteScalarAsync<int>("select count(*)::int from app.commission_pending_fees(@month,@beneficiaries)", new { month, beneficiaries });
+        }, ct);
+        return Results.Ok(new { count });
     }
 
     private static async Task<IResult> LostAsync(string competencia, Guid? beneficiaryId,

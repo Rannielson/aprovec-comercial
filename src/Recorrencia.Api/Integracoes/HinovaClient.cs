@@ -305,6 +305,56 @@ public sealed class HinovaClient(HttpClient http, HinovaTokenCache? tokenCache =
         return retried;
     }
 
+    public async Task<HinovaTarifaPagina> ListarAlteracoesTarifaAsync(string tokenUsuario, DateOnly dia, int pagina, int tamanho, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "boleto/listar-alteracao")
+        {
+            Content = JsonContent.Create(new {
+                data_inicial = dia.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+                data_final = dia.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
+                campos = new[] { "tarifa_cobranca_banco" }, ultima_alteracao = "N",
+                inicio_paginacao = pagina, quantidade_por_pagina = tamanho
+            })
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
+        using var response = await SendReadAsync(request, ct);
+        var text = await response.Content.ReadAsStringAsync(ct);
+        if (response.StatusCode == HttpStatusCode.NotAcceptable &&
+            (text.Contains("encontrad", StringComparison.OrdinalIgnoreCase) || text.Contains("Nenhum", StringComparison.OrdinalIgnoreCase)))
+            return new HinovaTarifaPagina(0, []);
+        response.EnsureSuccessStatusCode();
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("resultado", out var array) || array.ValueKind != JsonValueKind.Array ||
+                !int.TryParse(GetFlexString(root, "total"), out var total) || total < 0)
+                throw new JsonException("Invalid tariff page");
+            var rows = new List<HinovaTarifaAlteracao>();
+            foreach (var item in array.EnumerateArray())
+            {
+                var numero = GetFlexString(item, "nosso_numero");
+                if (string.IsNullOrWhiteSpace(numero) || GetFlexString(item, "nome_campo_tabela") != "tarifa_cobranca_banco" ||
+                    !long.TryParse(GetFlexString(item, "codigo_alteracao"), out var id))
+                    throw new JsonException("Invalid tariff change");
+                var dateText = GetFlexString(item, "data_alteracao") ?? "";
+                // The live API uses -0300; DateTimeOffset expects -03:00.
+                if (dateText.Length >= 5 && (dateText[^5] == '-' || dateText[^5] == '+') && dateText[^3] != ':')
+                    dateText = dateText.Insert(dateText.Length - 2, ":");
+                if (!DateTimeOffset.TryParse(dateText, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                    throw new JsonException("Invalid tariff date");
+                var valid = decimal.TryParse(GetFlexString(item, "valor_posterior")?.Replace(',', '.'),
+                    NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var fee) && fee >= 0;
+                rows.Add(new HinovaTarifaAlteracao(numero, id, date, valid ? fee : null));
+            }
+            return new HinovaTarifaPagina(total, rows);
+        }
+        catch (JsonException ex)
+        {
+            throw new HttpRequestException("Hinova retornou uma página de tarifas inválida.", ex, HttpStatusCode.BadGateway);
+        }
+    }
+
     private static HinovaBoleto ParseBoleto(JsonElement el)
     {
         var veiculos = el.TryGetProperty("veiculos", out var veiculosEl) && veiculosEl.ValueKind == JsonValueKind.Array

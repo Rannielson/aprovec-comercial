@@ -4,6 +4,14 @@ namespace Recorrencia.Api.Tests;
 
 public sealed class FakeHinovaClient : IHinovaClient
 {
+    public Func<DateOnly, int, int, HinovaTarifaPagina>? TarifaResponse { get; set; }
+    public List<HinovaTarifaAlteracao> Tarifas { get; } = [];
+    public Task<HinovaTarifaPagina> ListarAlteracoesTarifaAsync(string tokenUsuario, DateOnly dia, int pagina, int tamanho, CancellationToken ct)
+    {
+        if (TarifaResponse is not null) return Task.FromResult(TarifaResponse(dia, pagina, tamanho));
+        var rows = Tarifas.Where(t => DateOnly.FromDateTime(t.DataAlteracao.DateTime) == dia).ToList();
+        return Task.FromResult(new HinovaTarifaPagina(rows.Count, rows.Skip(pagina*tamanho).Take(tamanho).ToList()));
+    }
     public Dictionary<string, HinovaBoleto> BoletosPorNumero { get; } = new();
     public Task<HinovaBoleto?> BuscarBoletoAsync(string tokenUsuario, string nossoNumero, CancellationToken ct) => Task.FromResult(BoletosPorNumero.GetValueOrDefault(nossoNumero));
 

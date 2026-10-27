@@ -1,3 +1,4 @@
+using Recorrencia.Api.Commissions;
 using Recorrencia.Api.Authorization;
 using Recorrencia.Api.Infrastructure;
 using Recorrencia.Api.Integracoes;
@@ -9,7 +10,7 @@ namespace Recorrencia.Api.Carteira;
 public static class CarteiraEndpoints
 {
     public sealed record CarteiraItemResponse(Guid Id, string AssociadoNome, string? Placa, decimal Valor, string Status,
-        DateOnly Vencimento, DateOnly? PagoEm, int? DiasAtraso, decimal Comissao);
+        DateOnly Vencimento, DateOnly? PagoEm, int? DiasAtraso, decimal Comissao, decimal? TarifaBancaria, decimal? ValorLiquido, bool TarifaPendente);
 
     public sealed record CarteiraResponse(IReadOnlyList<CarteiraItemResponse> Items, int Page, int PageSize, int TotalCount,
         int TotalAllCount, IReadOnlyDictionary<string, int> StatusCounts, decimal TotalValor, decimal TotalComissao);
@@ -17,15 +18,15 @@ public static class CarteiraEndpoints
     private const int PageSize = 8;
 
     private const string CommissaoExpression = """
-        case when b.status = 'recebido' then
-          round(coalesce((
-            select r.rate * b.valor from commission_rules r
+        case when b.status = 'recebido' and b.commission_hold_reason is null and b.comissao_base is not null then
+          app.round_commission(coalesce((
+            select r.rate * b.comissao_base from commission_rules r
              where r.type = 'own'
                and r.plan_id = (select p.id from commission_plans p
                                  where p.tenant_id = @tenant and p.status = 'ativo'
                                    and p.effective_from <= date_trunc('month', b.pago_em)::date
                                  order by p.effective_from desc limit 1)
-          ), 0), 2)
+          ), 0))
         else 0 end
         """;
 
@@ -138,6 +139,9 @@ public static class CarteiraEndpoints
         public DateOnly? PagoEm { get; set; }
         public int? DiasAtraso { get; set; }
         public decimal Comissao { get; set; }
+        public decimal? TarifaBancaria { get; set; }
+        public decimal? ValorLiquido { get; set; }
+        public bool TarifaPendente { get; set; }
     }
 
     private sealed class TotalsRow
@@ -147,12 +151,14 @@ public static class CarteiraEndpoints
         public decimal TotalComissao { get; set; }
     }
 
-    private static async Task<IResult> ListAsync(string? status, string? query, int? page, RequestContext request, Database db, CancellationToken ct)
+    private static async Task<IResult> ListAsync(string? status, string? query, int? page, string? tarifas, string? competencia, RequestContext request, Database db, CancellationToken ct)
     {
         var tenant = request.RequireTenant();
         var user = request.RequireUser();
         var currentPage = page is null or < 1 ? 1 : page.Value;
         currentPage = Math.Min(currentPage, 100_000);
+        var mesPagamento = string.IsNullOrWhiteSpace(competencia) ? (DateOnly?)null : CommissionService.ParseCompetencia(competencia);
+        var somenteTarifasPendentes = tarifas == "pendentes";
         var statusFilter = status is null or "todos" ? null : status;
         var searchFilter = string.IsNullOrWhiteSpace(query) ? null : query.Trim();
         // Postgres ILIKE treats %, _ and \ as wildcard/escape characters; escape them so the
@@ -183,26 +189,32 @@ public static class CarteiraEndpoints
                   from boletos b
                  where b.tenant_id = @tenant and b.participante_id = any(@ownerIds)
                    and (@statusFilter::text is null or b.status = @statusFilter)
+                   and (not @somenteTarifasPendentes or (b.status='recebido' and b.comissao_base is null))
+                   and (@mesPagamento::date is null or (b.pago_em >= @mesPagamento and b.pago_em < @mesPagamento + interval '1 month'))
                    and (@searchFilter::text is null or b.associado_nome ilike '%' || @searchFilter || '%' or b.placa ilike '%' || @searchFilter || '%')
                 """,
-                new { tenant, ownerIds, statusFilter, searchFilter });
+                new { tenant, ownerIds, statusFilter, somenteTarifasPendentes, mesPagamento, searchFilter });
 
             var items = await tx.QueryAsync<ItemRow>(
                 $"""
                 select b.id, b.associado_nome, b.placa, b.valor, b.status, b.vencimento, b.pago_em,
+                       b.tarifa_bancaria, b.comissao_base as valor_liquido,
+                       (b.status='recebido' and b.comissao_base is null) as tarifa_pendente,
                        case when b.status = 'atraso' then ((now() at time zone 'America/Sao_Paulo')::date - b.vencimento)::int end as dias_atraso,
                        {CommissaoExpression} as comissao
                   from boletos b
                  where b.tenant_id = @tenant and b.participante_id = any(@ownerIds)
                    and (@statusFilter::text is null or b.status = @statusFilter)
+                   and (not @somenteTarifasPendentes or (b.status='recebido' and b.comissao_base is null))
+                   and (@mesPagamento::date is null or (b.pago_em >= @mesPagamento and b.pago_em < @mesPagamento + interval '1 month'))
                    and (@searchFilter::text is null or b.associado_nome ilike '%' || @searchFilter || '%' or b.placa ilike '%' || @searchFilter || '%')
                  order by coalesce(b.pago_em, b.vencimento) desc, b.id
                  limit @pageSize offset @offset
                 """,
-                new { tenant, ownerIds, statusFilter, searchFilter, pageSize = PageSize, offset = (currentPage - 1) * PageSize });
+                new { tenant, ownerIds, statusFilter, somenteTarifasPendentes, mesPagamento, searchFilter, pageSize = PageSize, offset = (currentPage - 1) * PageSize });
 
             return new CarteiraResponse(
-                items.Select(i => new CarteiraItemResponse(i.Id, i.AssociadoNome, i.Placa, i.Valor, i.Status, i.Vencimento, i.PagoEm, i.DiasAtraso, i.Comissao)).ToList(),
+                items.Select(i => new CarteiraItemResponse(i.Id, i.AssociadoNome, i.Placa, i.Valor, i.Status, i.Vencimento, i.PagoEm, i.DiasAtraso, i.Comissao, i.TarifaBancaria, i.ValorLiquido, i.TarifaPendente)).ToList(),
                 currentPage, PageSize, totals.TotalCount, totalAllCount, statusCounts, totals.TotalValor, totals.TotalComissao);
         }, ct);
 

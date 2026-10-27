@@ -47,7 +47,7 @@ public static class CommissionEndpoints
 
     public static void MapCommissionEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/commissions/{competencia}/pending-fees", PendingFeesAsync).RequirePermission("comissoes.visualizar");
+        app.MapGet("/commissions/{competencia}/pending-fees", PendingFeesAsync).RequirePermission("comissoes.visualizar").RequirePermission("integracoes.gerenciar");
         app.MapGet("/commissions/{competencia}", SummaryAsync).RequirePermission("comissoes.visualizar");
         app.MapGet("/commissions/{competencia}/entries", EntriesAsync).RequirePermission("comissoes.visualizar");
         app.MapGet("/commissions/{competencia}/downline", DownlineAsync).RequirePermission("comissoes.visualizar");

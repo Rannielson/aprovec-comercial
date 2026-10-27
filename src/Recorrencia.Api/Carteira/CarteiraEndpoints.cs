@@ -167,6 +167,8 @@ public static class CarteiraEndpoints
 
         var response = await db.InTenantAsync(tenant, user, async tx =>
         {
+            var canReviewFees = await tx.ExecuteScalarAsync<bool>("select app.has_permission('integracoes.gerenciar')");
+            var showPendingFees = canReviewFees && somenteTarifasPendentes;
             var ownerIds = await tx.ExecuteScalarAsync<Guid[]>("select app.carteira_owner_ids()") ?? [];
             if (ownerIds.Length == 0)
                 return new CarteiraResponse([], currentPage, PageSize, 0, 0, new Dictionary<string, int>(), 0, 0);
@@ -176,9 +178,10 @@ public static class CarteiraEndpoints
                 select status, count(*)::int as count
                   from boletos b
                  where b.tenant_id = @tenant and b.participante_id = any(@ownerIds)
+                   and (@showPendingFees or b.status <> 'recebido' or b.comissao_base is not null)
                  group by status
                 """,
-                new { tenant, ownerIds })).ToList();
+                new { tenant, ownerIds, showPendingFees })).ToList();
             var statusCounts = counts.ToDictionary(c => c.Status, c => c.Count);
             var totalAllCount = counts.Sum(c => c.Count);
 
@@ -188,12 +191,13 @@ public static class CarteiraEndpoints
                        coalesce(sum({CommissaoExpression}), 0) as total_comissao
                   from boletos b
                  where b.tenant_id = @tenant and b.participante_id = any(@ownerIds)
+                   and (@showPendingFees or b.status <> 'recebido' or b.comissao_base is not null)
                    and (@statusFilter::text is null or b.status = @statusFilter)
                    and (not @somenteTarifasPendentes or (b.status='recebido' and b.comissao_base is null))
                    and (@mesPagamento::date is null or (b.pago_em >= @mesPagamento and b.pago_em < @mesPagamento + interval '1 month'))
                    and (@searchFilter::text is null or b.associado_nome ilike '%' || @searchFilter || '%' or b.placa ilike '%' || @searchFilter || '%')
                 """,
-                new { tenant, ownerIds, statusFilter, somenteTarifasPendentes, mesPagamento, searchFilter });
+                new { tenant, ownerIds, showPendingFees, statusFilter, somenteTarifasPendentes, mesPagamento, searchFilter });
 
             var items = await tx.QueryAsync<ItemRow>(
                 $"""
@@ -204,6 +208,7 @@ public static class CarteiraEndpoints
                        {CommissaoExpression} as comissao
                   from boletos b
                  where b.tenant_id = @tenant and b.participante_id = any(@ownerIds)
+                   and (@showPendingFees or b.status <> 'recebido' or b.comissao_base is not null)
                    and (@statusFilter::text is null or b.status = @statusFilter)
                    and (not @somenteTarifasPendentes or (b.status='recebido' and b.comissao_base is null))
                    and (@mesPagamento::date is null or (b.pago_em >= @mesPagamento and b.pago_em < @mesPagamento + interval '1 month'))
@@ -211,7 +216,7 @@ public static class CarteiraEndpoints
                  order by coalesce(b.pago_em, b.vencimento) desc, b.id
                  limit @pageSize offset @offset
                 """,
-                new { tenant, ownerIds, statusFilter, somenteTarifasPendentes, mesPagamento, searchFilter, pageSize = PageSize, offset = (currentPage - 1) * PageSize });
+                new { tenant, ownerIds, showPendingFees, statusFilter, somenteTarifasPendentes, mesPagamento, searchFilter, pageSize = PageSize, offset = (currentPage - 1) * PageSize });
 
             return new CarteiraResponse(
                 items.Select(i => new CarteiraItemResponse(i.Id, i.AssociadoNome, i.Placa, i.Valor, i.Status, i.Vencimento, i.PagoEm, i.DiasAtraso, i.Comissao, i.TarifaBancaria, i.ValorLiquido, i.TarifaPendente)).ToList(),

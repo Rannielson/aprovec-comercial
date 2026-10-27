@@ -7,7 +7,7 @@ namespace Recorrencia.Api.Tests;
 public class HinovaTarifaTests(ApiFixture api)
 {
     private sealed record Pending(int Count);
-    private sealed record Wallet(List<WalletItem> Items);
+    private sealed record Wallet(List<WalletItem> Items, int TotalCount, int TotalAllCount);
     private sealed record WalletItem(Guid Id, decimal Valor, decimal Comissao, decimal? TarifaBancaria, decimal? ValorLiquido, bool TarifaPendente);
     private sealed record Entry(Guid BoletoId, string RuleType, decimal Base, decimal Amount);
 
@@ -77,9 +77,15 @@ public class HinovaTarifaTests(ApiFixture api)
             Assert.DoesNotContain(joao,e=>e.BoletoId==unknown||e.BoletoId==invalid);
             Assert.Contains(joao,e=>e.BoletoId==zero&&e.Amount==7m);
             Assert.Equal(2,(await admin.GetJsonAsync<Pending>("/commissions/2026-09/pending-fees")).Count);
-            var wallet=await consultor.GetJsonAsync<Wallet>("/carteira?status=recebido&tarifas=pendentes&competencia=2026-09");
+            var wallet=await admin.GetJsonAsync<Wallet>("/carteira?status=recebido&tarifas=pendentes&competencia=2026-09");
             Assert.Equal(2,wallet.Items.Count);Assert.All(wallet.Items,i=>Assert.True(i.TarifaPendente));
             Assert.Empty((await consultor.GetJsonAsync<Wallet>("/carteira?status=recebido&tarifas=pendentes&competencia=2026-10")).Items);
+            Assert.DoesNotContain((await admin.GetJsonAsync<Wallet>("/carteira?status=recebido&competencia=2026-09")).Items,b=>b.Id==unknown||b.Id==invalid);
+            var visible=await consultor.GetJsonAsync<Wallet>("/carteira?status=recebido&competencia=2026-09");
+            Assert.DoesNotContain(visible.Items,b=>b.Id==unknown||b.Id==invalid);
+            Assert.All(visible.Items,b=>Assert.False(b.TarifaPendente));
+            Assert.Empty((await consultor.GetJsonAsync<Wallet>("/carteira?status=recebido&tarifas=pendentes&competencia=2026-09")).Items);
+            await ApiClient.ExpectAsync(await consultor.GetAsync("/commissions/2026-09/pending-fees"),HttpStatusCode.Forbidden);
             var close=await admin.PostAsync("/fechamentos/2026-09/confirm");
             Assert.Equal("fechamento.tarifas_pendentes",await ApiClient.CodeAsync(close));
             Assert.Equal(0,await api.Service<Database>().InTenantAsync(other.TenantId,other.Admin,tx=>tx.ExecuteScalarAsync<int>(
@@ -88,6 +94,12 @@ public class HinovaTarifaTests(ApiFixture api)
             api.Hinova.Tarifas.Add(new(prefix+"paid",19,new DateTimeOffset(2026,10,1,0,0,0,TimeSpan.FromHours(-3)),9m));
             await HinovaTarifaSync.SyncAsync(api.Service<Database>(),api.Hinova,s.TenantId,s.Admin,"fake",new(2026,10,1),new(2026,10,1),CancellationToken.None);
             Assert.Equal(1.75m,await api.SqlScalarAsync<decimal>("select tarifa_bancaria from boletos where id=@id",new{id}));
+            api.Hinova.Tarifas.Add(new(prefix+"unknown",30,new DateTimeOffset(2026,10,2,0,0,0,TimeSpan.FromHours(-3)),2m));
+            await HinovaTarifaSync.SyncAsync(api.Service<Database>(),api.Hinova,s.TenantId,s.Admin,"fake",new(2026,10,2),new(2026,10,2),CancellationToken.None);
+            var updated=await consultor.GetJsonAsync<Wallet>("/carteira?status=recebido&competencia=2026-09");
+            Assert.Equal(visible.TotalCount+1,updated.TotalCount);
+            Assert.Equal(visible.TotalAllCount+1,updated.TotalAllCount);
+            Assert.Contains(updated.Items,b=>b.Id==unknown && !b.TarifaPendente && b.ValorLiquido==98m && b.Comissao==6.86m);
         }
         finally{api.Hinova.Tarifas.Clear();}
     }

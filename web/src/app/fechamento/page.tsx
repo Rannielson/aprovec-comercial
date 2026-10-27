@@ -1,4 +1,3 @@
-import { FeeReview } from '../components/fee-review';
 import { notFound, redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { AppShell } from '../app-shell';
@@ -91,7 +90,6 @@ export default async function FechamentoPage({ searchParams }: {
     return (
       <AppShell me={me} active="closing">
         <AutoRefresh />
-        {me.permissions.some((p) => p.key === 'comissoes.visualizar') && <FeeReview month={month} />}
         <div className="shell consultant-dashboard-shell">
           <div className="page-heading dashboard-heading">
             <div>
@@ -204,7 +202,6 @@ export default async function FechamentoPage({ searchParams }: {
         </div>
 
         <div className="closing-layout">
-          <FeeReview month={month} />
           <PayoutStatement payout={payout} isFullVisibility={isFullVisibility} viewerId={me.id} canApproveExtra={canConfirm && !closed} />
           <section className="card next-step">{nextStep()}</section>
         </div>

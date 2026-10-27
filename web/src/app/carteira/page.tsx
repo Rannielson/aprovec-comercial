@@ -23,6 +23,7 @@ export default async function CarteiraPage({
   if (host.kind !== 'tenant') notFound();
 
   const me = await apiFetch<Me>('/me');
+  const canReviewFees = me.permissions.some((p) => p.key === 'integracoes.gerenciar');
   const canSeeCarteira = me.permissions.some((p) => p.key === 'carteira.visualizar');
   if (!canSeeCarteira) {
     return (
@@ -39,7 +40,7 @@ export default async function CarteiraPage({
   const { status, query, page, tarifas, competencia, aviso } = await searchParams;
   const activeStatus = status && status !== 'todos' ? status : 'todos';
   const paymentMonth = isCompetencia(competencia) ? competencia : null;
-  const onlyPendingFees = tarifas === 'pendentes';
+  const onlyPendingFees = canReviewFees && tarifas === 'pendentes';
   const currentPage = Math.max(1, Number(page) || 1);
 
   const apiParams = new URLSearchParams();
@@ -132,10 +133,10 @@ export default async function CarteiraPage({
                   wallet.items.map((item) => (
                     <tr key={item.id}>
                       <td className="wallet-name">{item.associadoNome}
-                        {item.tarifaPendente && <><br /><span className="badge warning">Tarifa pendente de conferência</span></>}
+                        {canReviewFees && item.tarifaPendente && <><br /><span className="badge warning">Tarifa pendente de conferência</span></>}
                       </td>
                       <td className="number amount" data-label="Valor">{formatMoney(item.valor)}
-                        {item.status === 'recebido' && item.tarifaBancaria != null && item.valorLiquido != null && <>
+                        {canReviewFees && item.status === 'recebido' && item.tarifaBancaria != null && item.valorLiquido != null && <>
                           <br /><small className="muted">Tarifa {formatMoney(item.tarifaBancaria)} · Líquido {formatMoney(item.valorLiquido)}</small>
                         </>}
                       </td>

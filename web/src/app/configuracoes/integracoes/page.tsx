@@ -76,6 +76,7 @@ export default async function IntegracoesPage({
         </section>
 
         {status.configurado && <BoletoSyncCard initialJobs={jobs} currentMonth={currentMonth} />}
+        {status.configurado && <p><a className="text-button" href="/carteira?status=recebido&tarifas=pendentes">Conferência bancária</a></p>}
 
         {status.configurado && (
           <section className="card">

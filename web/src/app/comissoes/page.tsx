@@ -1,4 +1,4 @@
-import { FeeReview } from '../components/fee-review';
+import { AutoRefresh } from '../components/auto-refresh';
 import { notFound } from 'next/navigation';
 import { AppShell } from '../app-shell';
 import { apiFetch, currentHost } from '@/lib/api';
@@ -60,6 +60,7 @@ export default async function ComissoesPage({
 
   return (
     <AppShell me={me} active="commissions">
+      <AutoRefresh />
       <div className="shell">
         <div className="page-heading">
           <p className="eyebrow">Painel do vendedor</p>
@@ -67,7 +68,6 @@ export default async function ComissoesPage({
           <p className="muted">Veja como cada recebimento contribui para o seu resultado.</p>
         </div>
 
-        <FeeReview month={month} />
         <section className="commission-band">
           <div className="commission-total">
             <span className="overline">Comissão apurada · {formatCompetencia(month)}</span>

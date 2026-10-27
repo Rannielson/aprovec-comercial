@@ -16,6 +16,8 @@ function statusLabel(status: HinovaBoletoSync['status']) {
 
 function progressInfo(job: HinovaBoletoSync) {
   switch (job.fase) {
+    case 'aguardando_nova_tentativa':
+      return { title: 'Consulta interrompida · aguardando nova tentativa automática', current: 0, total: null, verb: 'analisados' };
     case 'buscando_pagamentos':
       return { title: 'Consultando pagamentos na Hinova', current: job.pagamentosConsultados, total: job.totalBoletos, verb: 'consultados' };
     case 'importando_pagamentos':
@@ -61,7 +63,7 @@ export function BoletoSyncCard({ initialJobs, currentMonth }: {
         <p className="muted">Escolha o mês de referência. Primeiro importamos os pagamentos pela data de pagamento; depois atualizamos a carteira pela data de vencimento, incluindo os boletos em aberto. Os registros são identificados pelo nosso número, sem duplicação.</p>
       </div>
 
-      <p className="muted">A rotina automática roda às 5h, no horário de Recife. Após os pagamentos dos últimos cinco dias, atualiza os vencimentos do mês atual e dos meses anteriores com pendências importadas.</p>
+      <p className="muted">A rotina automática roda às 5h, no horário de Recife. Após os pagamentos dos últimos cinco dias, atualiza os vencimentos do mês atual e dos meses anteriores com pendências importadas. Se houver falha, realiza até três tentativas, com intervalo de 15 minutos.</p>
 
       <form action={formAction} className="inline">
         <label>
@@ -105,6 +107,7 @@ export function BoletoSyncCard({ initialJobs, currentMonth }: {
                     {job.status === 'running' && <progress className="sync-progress" value={progress.total ? progress.current : undefined} max={progress.total ?? 1} aria-label={progress.title} />}
                     <p className="muted sync-counts">Pagamentos: {job.pagamentosProcessados} de {job.totalBoletos ?? '…'} analisados · {job.importados ?? 0} importados.</p>
                     <p className="muted sync-counts">Carteira por vencimento: {job.vencimentosProcessados} de {job.vencimentoRetornados ?? '…'} analisados · {job.vencimentoVinculados ?? 0} vinculados.</p>
+                    {job.fase === 'aguardando_nova_tentativa' && <p className="muted" role="status">A consulta falhou. Uma nova tentativa ocorrerá automaticamente em até 15 minutos; a execução ainda não foi concluída.</p>}
                     {job.status === 'failed' && <p className="error">{messageFor(job.errorCode ?? 'internal.error')} Os boletos já gravados permanecem salvos; você pode repetir o mês sem duplicá-los.</p>}
                     {job.status === 'completed' && <p className="success">Sincronização concluída sem erro.</p>}
                   </td></tr>

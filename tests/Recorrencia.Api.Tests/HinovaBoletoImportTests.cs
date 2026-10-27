@@ -59,6 +59,39 @@ public class HinovaBoletoImportTests(ApiFixture api)
     }
 
     [Fact]
+    public async Task Oversized_page_failure_reduces_page_size_without_losing_or_repeating_records()
+    {
+        var s=await api.SeedAsync();
+        var admin=await LoginAsAdminAsync(s);
+        await ConfigureCredentialsAsync(admin);
+        await ApiClient.ExpectAsync(await admin.PostAsync("/integracoes/hinova/mapeamentos",
+            new {userId=s.Joao,codigoVoluntario="101",nomeHinova="Consultor",cpfHinova="11122233344"}),HttpStatusCode.Created);
+        var rows=Enumerable.Range(0,750).Select(i => new HinovaBoleto("adaptive-"+i,100,100,"999","Teste",
+            new DateOnly(2026,10,1),new DateOnly(2026,10,27),[new HinovaVeiculoBoleto("1","999","ABC1D23")])).ToArray();
+        var pages=new List<(int Size,int Page)>();
+        api.Hinova.BeforeListBoletos=(filter,_)=>
+        {
+            api.Hinova.BoletosPaginas.Clear();
+            if(filter.FiltrarPorVencimento)return Task.CompletedTask;
+            pages.Add((filter.QuantidadePorPagina,filter.InicioPaginacao));
+            if(filter.QuantidadePorPagina==500 && filter.InicioPaginacao==1)
+                throw new HttpRequestException("Malformed upstream response",null,HttpStatusCode.BadGateway);
+            for(var index=0;index<=filter.InicioPaginacao;index++)
+                api.Hinova.BoletosPaginas.Add(new HinovaBoletoPagina((int)Math.Ceiling(750d/filter.QuantidadePorPagina),750,index,
+                    rows.Skip(index*filter.QuantidadePorPagina).Take(filter.QuantidadePorPagina).ToList()));
+            return Task.CompletedTask;
+        };
+        try
+        {
+            var result=await admin.PostJsonAsync<ImportarBoletosResponseDto>("/integracoes/hinova/boletos/importar",new {competencia="2026-10"});
+            Assert.Equal(750,result.TotalBoletos);
+            Assert.Equal(750,result.SemVinculo);
+            Assert.Equal(new[] {(500,0),(500,1),(100,5),(100,6),(100,7)},pages);
+        }
+        finally {api.Hinova.BeforeListBoletos=null;api.Hinova.BoletosPaginas.Clear();}
+    }
+
+    [Fact]
     public async Task Existing_overdue_boleto_is_settled_even_without_a_current_volunteer_mapping()
     {
         var s=await api.SeedAsync();

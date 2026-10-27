@@ -74,7 +74,7 @@ export type HinovaBoletoSync = {
   id: string;
   competencia: string;
   status: 'queued' | 'running' | 'completed' | 'failed';
-  fase: 'na_fila' | 'iniciando' | 'buscando_pagamentos' | 'buscando_vencimentos' | 'importando_pagamentos' | 'importando_vencimentos' | 'concluido' | 'falhou';
+  fase: 'na_fila' | 'aguardando_nova_tentativa' | 'iniciando' | 'buscando_pagamentos' | 'buscando_vencimentos' | 'importando_pagamentos' | 'importando_vencimentos' | 'concluido' | 'falhou';
   requestedAt: string;
   startedAt: string | null;
   finishedAt: string | null;

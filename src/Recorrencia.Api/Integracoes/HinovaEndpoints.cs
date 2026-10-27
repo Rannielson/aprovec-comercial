@@ -577,7 +577,7 @@ public static class HinovaEndpoints
     {
         var result = new List<HinovaBoleto>();
         var pagina = 0;
-        var pageSize = 500;
+        var pageSize = 1000;
         while (true)
         {
             HinovaBoletoPagina page;
@@ -589,18 +589,18 @@ public static class HinovaEndpoints
                         new HinovaBoletoPeriodoFiltro(mesInicio, mesFim, pageSize, pagina, FiltrarPorVencimento: porVencimento), ct);
                     break;
                 }
-                catch (HttpRequestException ex) when (pageSize == 500 && !ct.IsCancellationRequested &&
+                catch (HttpRequestException ex) when (pageSize > 100 && !ct.IsCancellationRequested &&
                     ex.StatusCode == System.Net.HttpStatusCode.BadGateway)
                 {
                     // Some large pages exceed Hinova's processing limit. Convert the page
                     // index to the same absolute offset before reducing the page size.
-                    pagina *= 5;
+                    pagina = result.Count / 100;
                     pageSize = 100;
                     attempt = -1;
                 }
-                catch (OperationCanceledException) when (pageSize == 500 && !ct.IsCancellationRequested)
+                catch (OperationCanceledException) when (pageSize > 100 && !ct.IsCancellationRequested)
                 {
-                    pagina *= 5;
+                    pagina = result.Count / 100;
                     pageSize = 100;
                     attempt = -1;
                 }

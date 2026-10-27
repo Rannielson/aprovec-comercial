@@ -100,15 +100,17 @@ public class HinovaBoletoImportTests(ApiFixture api)
         finally {api.Hinova.AuthFailure=null;api.Hinova.BeforeListBoletos=null;}
     }
 
-    [Fact]
-    public async Task Oversized_page_failure_reduces_page_size_without_losing_or_repeating_records()
+    [Theory]
+    [InlineData(1000)]
+    [InlineData(500)]
+    public async Task Oversized_page_failure_reduces_page_size_without_losing_or_repeating_records(int serverPageSize)
     {
         var s=await api.SeedAsync();
         var admin=await LoginAsAdminAsync(s);
         await ConfigureCredentialsAsync(admin);
         await ApiClient.ExpectAsync(await admin.PostAsync("/integracoes/hinova/mapeamentos",
             new {userId=s.Joao,codigoVoluntario="101",nomeHinova="Consultor",cpfHinova="11122233344"}),HttpStatusCode.Created);
-        var rows=Enumerable.Range(0,750).Select(i => new HinovaBoleto("adaptive-"+i,100,100,"999","Teste",
+        var rows=Enumerable.Range(0,1500).Select(i => new HinovaBoleto("adaptive-"+i,100,100,"999","Teste",
             new DateOnly(2026,10,1),new DateOnly(2026,10,27),[new HinovaVeiculoBoleto("1","999","ABC1D23")])).ToArray();
         var pages=new List<(int Size,int Page)>();
         api.Hinova.BeforeListBoletos=(filter,_)=>
@@ -116,19 +118,22 @@ public class HinovaBoletoImportTests(ApiFixture api)
             api.Hinova.BoletosPaginas.Clear();
             if(filter.FiltrarPorVencimento)return Task.CompletedTask;
             pages.Add((filter.QuantidadePorPagina,filter.InicioPaginacao));
-            if(filter.QuantidadePorPagina==500 && filter.InicioPaginacao==1)
+            if(filter.QuantidadePorPagina==1000 && filter.InicioPaginacao==1)
                 throw new HttpRequestException("Malformed upstream response",null,HttpStatusCode.BadGateway);
+            var effectiveSize=Math.Min(serverPageSize,filter.QuantidadePorPagina);
             for(var index=0;index<=filter.InicioPaginacao;index++)
-                api.Hinova.BoletosPaginas.Add(new HinovaBoletoPagina((int)Math.Ceiling(750d/filter.QuantidadePorPagina),750,index,
-                    rows.Skip(index*filter.QuantidadePorPagina).Take(filter.QuantidadePorPagina).ToList()));
+                api.Hinova.BoletosPaginas.Add(new HinovaBoletoPagina((int)Math.Ceiling(1500d/effectiveSize),1500,index,
+                    rows.Skip(index*effectiveSize).Take(effectiveSize).ToList()));
             return Task.CompletedTask;
         };
         try
         {
             var result=await admin.PostJsonAsync<ImportarBoletosResponseDto>("/integracoes/hinova/boletos/importar",new {competencia="2026-10"});
-            Assert.Equal(750,result.TotalBoletos);
-            Assert.Equal(750,result.SemVinculo);
-            Assert.Equal(new[] {(500,0),(500,1),(100,5),(100,6),(100,7)},pages);
+            Assert.Equal(1500,result.TotalBoletos);
+            Assert.Equal(1500,result.SemVinculo);
+            var expected=new List<(int,int)>{(1000,0),(1000,1)};
+            expected.AddRange(Enumerable.Range(serverPageSize/100,15-serverPageSize/100).Select(page=>(100,page)));
+            Assert.Equal(expected,pages);
         }
         finally {api.Hinova.BeforeListBoletos=null;api.Hinova.BoletosPaginas.Clear();}
     }
@@ -677,6 +682,6 @@ public class HinovaBoletoImportTests(ApiFixture api)
         var result = await admin.PostJsonAsync<ImportarBoletosResponseDto>("/integracoes/hinova/boletos/importar", new { competencia = "2026-09" });
 
         Assert.Equal((2, 2, 0, 0, 0), (result.TotalBoletos, result.Importados, result.SemVinculo, result.ConflitoMultiploVendedor, result.NaoPago));
-        Assert.Equal(500, api.Hinova.UltimoFiltroBoletos!.QuantidadePorPagina);
+        Assert.Equal(1000, api.Hinova.UltimoFiltroBoletos!.QuantidadePorPagina);
     }
 }

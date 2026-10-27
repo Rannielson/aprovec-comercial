@@ -42,7 +42,7 @@ public sealed class HinovaClient(HttpClient http, HinovaTokenCache? tokenCache =
         using var request = new HttpRequestMessage(HttpMethod.Get, "listar/voluntario/ativo");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
 
-        using var response = await http.SendAsync(request, ct);
+        using var response = await SendReadAsync(request, ct);
         response.EnsureSuccessStatusCode();
 
         var items = await response.Content.ReadFromJsonAsync<List<VoluntarioDto>>(cancellationToken: ct) ?? [];
@@ -65,7 +65,7 @@ public sealed class HinovaClient(HttpClient http, HinovaTokenCache? tokenCache =
         using var request = new HttpRequestMessage(HttpMethod.Get, $"buscar/voluntario/{Uri.EscapeDataString(cpfOuCodigo)}");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
 
-        using var response = await http.SendAsync(request, ct);
+        using var response = await SendReadAsync(request, ct);
         if (response.StatusCode == HttpStatusCode.NotFound)
             return null;
         response.EnsureSuccessStatusCode();
@@ -164,8 +164,12 @@ public sealed class HinovaClient(HttpClient http, HinovaTokenCache? tokenCache =
                 cooperativas = request.CooperativaCodigos.Select(c => new { codigo_cooperativa = c }).ToList(),
             }),
         };
+        if (tokenCache is not null && _credentials is { } credentials)
+            tokenUsuario = await tokenCache.GetAsync(HinovaTokenCache.Key(credentials.Usuario, credentials.Senha, credentials.TokenSga),
+                () => AuthenticateRawAsync(credentials.Usuario, credentials.Senha, credentials.TokenSga, ct), ct);
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
 
+        // A creation is sent once; only read operations are replayed after token refresh.
         using var response = await http.SendAsync(httpRequest, ct);
         response.EnsureSuccessStatusCode();
 

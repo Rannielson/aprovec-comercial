@@ -32,6 +32,8 @@ public class HinovaClientTests
             if(request.RequestUri!.AbsolutePath.EndsWith("usuario/autenticar"))
                 return new HttpResponseMessage(HttpStatusCode.OK) {Content=JsonContent.Create(new {token_usuario=++authentications==1?"old":"fresh"})};
             seen.Add(request.Headers.Authorization?.Parameter);
+            if(request.RequestUri.AbsolutePath.EndsWith("voluntario/cadastrar"))
+                return new HttpResponseMessage(HttpStatusCode.OK) {Content=JsonContent.Create(new {codigo_voluntario="99"})};
             return request.Headers.Authorization?.Parameter=="old" ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
                 : new HttpResponseMessage(HttpStatusCode.OK) {Content=JsonContent.Create(new {numero_paginas=0,total_registros=0,pagina_corrente=0,boletos=Array.Empty<object>()})};
         });
@@ -46,8 +48,11 @@ public class HinovaClientTests
         var filter=new HinovaBoletoPeriodoFiltro(new DateOnly(2026,10,1),new DateOnly(2026,10,31),500,0);
         await first.ListarBoletosPeriodoAsync("old",filter,CancellationToken.None);
         await second.ListarBoletosPeriodoAsync(other,filter,CancellationToken.None);
+        var created=await second.CadastrarVoluntarioAsync("old",new CadastrarVoluntarioRequest(
+            "Teste","11122233344",null,null,"Rua","1",null,"Bairro","Cidade","CE","60000000",["1"],null,null),CancellationToken.None);
+        Assert.Equal("99",created);
         Assert.Equal(2,authentications);
-        Assert.Equal(new[]{"old","fresh","fresh"},seen);
+        Assert.Equal(new[]{"old","fresh","fresh","fresh"},seen);
     }
 
     [Theory]

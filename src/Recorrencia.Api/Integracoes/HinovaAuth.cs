@@ -5,8 +5,8 @@ namespace Recorrencia.Api.Integracoes;
 
 /// <summary>
 /// Decrypt-then-authenticate against the real Hinova API, shared by every endpoint that needs a
-/// tokenUsuario. Re-authenticates every call (no caching) -- same decision as the original
-/// ListarVoluntariosAsync call site this was extracted from.
+/// tokenUsuario. The production client shares authentication across requests and refreshes
+/// rejected tokens without allowing concurrent authentications to invalidate an active sync.
 /// </summary>
 public static class HinovaAuth
 {

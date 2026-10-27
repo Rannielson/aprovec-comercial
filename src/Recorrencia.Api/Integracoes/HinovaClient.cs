@@ -7,9 +7,19 @@ using System.Text.Json.Serialization;
 
 namespace Recorrencia.Api.Integracoes;
 
-public sealed class HinovaClient(HttpClient http) : IHinovaClient
+public sealed class HinovaClient(HttpClient http, HinovaTokenCache? tokenCache = null) : IHinovaClient
 {
-    public async Task<string> AutenticarAsync(string usuario, string senha, string tokenSga, CancellationToken ct)
+    private (string Usuario, string Senha, string TokenSga)? _credentials;
+
+    public Task<string> AutenticarAsync(string usuario, string senha, string tokenSga, CancellationToken ct)
+    {
+        _credentials = (usuario, senha, tokenSga);
+        return tokenCache is null ? AuthenticateRawAsync(usuario, senha, tokenSga, ct)
+            : tokenCache.GetAsync(HinovaTokenCache.Key(usuario, senha, tokenSga),
+                () => AuthenticateRawAsync(usuario, senha, tokenSga, ct), ct);
+    }
+
+    private async Task<string> AuthenticateRawAsync(string usuario, string senha, string tokenSga, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "usuario/autenticar")
         {
@@ -101,7 +111,7 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
             $"listar/associado/contatos/{Uri.EscapeDataString(codigoAssociado)}");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
 
-        using var response = await http.SendAsync(request, ct);
+        using var response = await SendReadAsync(request, ct);
         if (response.StatusCode == HttpStatusCode.NotFound)
             return null;
         response.EnsureSuccessStatusCode();
@@ -189,7 +199,7 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
 
-        using var response = await http.SendAsync(request, ct);
+        using var response = await SendReadAsync(request, ct);
         if (response.StatusCode == HttpStatusCode.NotAcceptable)
             return new HinovaBoletoPagina(0, 0, filtro.InicioPaginacao, []);
         response.EnsureSuccessStatusCode();
@@ -223,11 +233,35 @@ public sealed class HinovaClient(HttpClient http) : IHinovaClient
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "buscar/boleto/" + Uri.EscapeDataString(nossoNumero));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
-        using var response = await http.SendAsync(request, ct);
+        using var response = await SendReadAsync(request, ct);
         if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NotAcceptable) return null;
         response.EnsureSuccessStatusCode();
         using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
         return ParseBoleto(doc.RootElement);
+    }
+
+    private async Task<HttpResponseMessage> SendReadAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        if (tokenCache is null || _credentials is not { } c) return await http.SendAsync(request, ct);
+        var key = HinovaTokenCache.Key(c.Usuario, c.Senha, c.TokenSga);
+        Task<string> Authenticate() => AuthenticateRawAsync(c.Usuario, c.Senha, c.TokenSga, ct);
+        var token = await tokenCache.GetAsync(key, Authenticate, ct);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var response = await http.SendAsync(request, ct);
+        if (response.StatusCode != HttpStatusCode.Unauthorized) return response;
+        response.Dispose();
+        var refreshed = await tokenCache.GetAsync(key, Authenticate, ct, invalidToken: token);
+        using var retry = new HttpRequestMessage(request.Method, request.RequestUri);
+        foreach (var header in request.Headers)
+            retry.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        retry.Headers.Authorization = new AuthenticationHeaderValue("Bearer", refreshed);
+        if (request.Content is not null)
+        {
+            retry.Content = new ByteArrayContent(await request.Content.ReadAsByteArrayAsync(ct));
+            foreach (var header in request.Content.Headers)
+                retry.Content.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        }
+        return await http.SendAsync(retry, ct);
     }
 
     private static HinovaBoleto ParseBoleto(JsonElement el)

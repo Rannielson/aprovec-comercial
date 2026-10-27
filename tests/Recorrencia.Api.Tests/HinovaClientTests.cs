@@ -22,6 +22,34 @@ public class HinovaClientTests
         return (new HinovaClient(http), handler);
     }
 
+    [Fact]
+    public async Task Shared_cache_authenticates_once_and_refreshes_a_rejected_token_once()
+    {
+        var authentications=0;
+        var seen=new List<string?>();
+        var handler=new StubHandler(request=>
+        {
+            if(request.RequestUri!.AbsolutePath.EndsWith("usuario/autenticar"))
+                return new HttpResponseMessage(HttpStatusCode.OK) {Content=JsonContent.Create(new {token_usuario=++authentications==1?"old":"fresh"})};
+            seen.Add(request.Headers.Authorization?.Parameter);
+            return request.Headers.Authorization?.Parameter=="old" ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                : new HttpResponseMessage(HttpStatusCode.OK) {Content=JsonContent.Create(new {numero_paginas=0,total_registros=0,pagina_corrente=0,boletos=Array.Empty<object>()})};
+        });
+        var cache=new HinovaTokenCache();
+        HinovaClient Create()=>new(new HttpClient(handler){BaseAddress=new Uri("https://api.hinova.com.br/api/sga/v2/")},cache);
+        var first=Create();var second=Create();
+        var tokens=await Task.WhenAll(Enumerable.Range(0,20).Select(_=>first.AutenticarAsync("user","pass","static",CancellationToken.None)));
+        Assert.All(tokens,t=>Assert.Equal("old",t));
+        Assert.Equal(1,authentications);
+        var other=await second.AutenticarAsync("user","pass","static",CancellationToken.None);
+        Assert.Equal("old",other);
+        var filter=new HinovaBoletoPeriodoFiltro(new DateOnly(2026,10,1),new DateOnly(2026,10,31),500,0);
+        await first.ListarBoletosPeriodoAsync("old",filter,CancellationToken.None);
+        await second.ListarBoletosPeriodoAsync(other,filter,CancellationToken.None);
+        Assert.Equal(2,authentications);
+        Assert.Equal(new[]{"old","fresh","fresh"},seen);
+    }
+
     [Theory]
     [InlineData("Ocorreu um erro no servidor")]
     [InlineData("{\"mensagem\":\"Erro temporário\"}")]

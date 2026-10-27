@@ -26,11 +26,15 @@ public static class HinovaAuth
         {
             return await hinova.AutenticarAsync(usuario, senha, tokenSga, ct);
         }
-        catch (HinovaAuthException)
+        catch (HinovaAuthException ex)
         {
-            throw new ApiProblem(StatusCodes.Status400BadRequest, "hinova.credenciais_invalidas");
+            throw ToProblem(ex);
         }
     }
+
+    public static ApiProblem ToProblem(HinovaAuthException exception, int invalidCredentialsStatus = StatusCodes.Status400BadRequest) =>
+        new(exception.Code == "hinova.credenciais_invalidas" ? invalidCredentialsStatus : StatusCodes.Status503ServiceUnavailable,
+            exception.Code, exception.RetryAfter);
 
     private sealed class CredenciaisRow
     {

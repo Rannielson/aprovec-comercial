@@ -8,6 +8,8 @@ A integração Hinova tem sincronização manual e automática com acompanhament
 
 Para evitar cobranças indevidas, boletos excluídos, cancelados ou estornados na Hinova saem dos atrasados. Antes de abrir o WhatsApp, a API consulta o boleto pelo nosso número: pagamento confirmado atualiza a carteira e bloqueia o atalho; situações desconhecidas e falhas de consulta também bloqueiam o atalho. A sincronização diária realiza até três tentativas, com intervalo de 15 minutos em caso de falha. A sincronização manual também revisita meses anteriores com pendências. A autenticação Hinova é compartilhada entre as consultas; tokens rejeitados são renovados uma vez nas leituras. Respostas inválidas são repetidas e consultas grandes podem usar páginas menores, preservando a posição dos registros.
 
+O bloqueio temporário por excesso de extração da Hinova é identificado separadamente de credenciais inválidas. A integração compartilha o token, espaça as chamadas em dois segundos por padrão e respeita a pausa antes de tentar novamente. A API de sincronização aceita `somentePagamentos: true` para reimportar um mês pela data de pagamento sem repetir o histórico de vencimentos. A revisão administrativa em `/commissions/AAAA-MM?recalculate=true` compara o cálculo atual sem modificar um fechamento confirmado.
+
 Os cadastros por indicação são processados em fila. Voluntários já existentes na Hinova podem ser vinculados pelo administrador; os convites de acesso são enviados por e-mail. O superadministrador da plataforma usa `/admin`, e os usuários do tenant usam `/login`.
 
 ## Mockup original

@@ -101,13 +101,20 @@ public static class CommissionEndpoints
         return Results.Ok(response);
     }
 
-    private static async Task<IResult> SummaryAsync(string competencia, RequestContext request, Database db, CancellationToken ct)
+    private static async Task<IResult> SummaryAsync(string competencia, bool? recalculate, RequestContext request, Database db, CancellationToken ct)
     {
         var month = CommissionService.ParseCompetencia(competencia);
         var response = await db.InTenantAsync(request.RequireTenant(), request.RequireUser(), async tx =>
         {
+            if (recalculate is true && !await tx.ExecuteScalarAsync<bool>(
+                "select app.has_permission('fechamento.confirmar') and app.scope_for('comissoes.visualizar') = 'tenant'"))
+                throw new ApiProblem(StatusCodes.Status403Forbidden, "fechamento.requires_full_visibility");
             var beneficiaries = await tx.ExecuteScalarAsync<Guid[]>("select app.commission_beneficiaries()") ?? [];
             var loaded = await CommissionService.LoadAsync(tx, month, beneficiaries);
+            if (recalculate is true)
+                loaded = new CommissionService.LoadedCommissions(loaded.Status, "live_review",
+                    await CommissionService.CalculateLiveAsync(tx, month, beneficiaries));
+
             var summary = CommissionSummary.ByBeneficiary(loaded.Entries);
             var names = await NamesAsync(tx, summary.Select(s => s.BeneficiaryId));
             var groups = (await tx.QueryAsync<NameRow>("select id, name from commission_groups")).ToDictionary(g => g.Id, g => g.Name);

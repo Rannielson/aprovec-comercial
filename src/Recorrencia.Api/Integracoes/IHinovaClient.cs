@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace Recorrencia.Api.Integracoes;
 
 public interface IHinovaClient
@@ -40,4 +42,27 @@ public sealed record CadastrarVoluntarioRequest(
     string Logradouro, string Numero, string? Complemento, string Bairro, string Cidade, string Estado, string Cep,
     IReadOnlyList<string> CooperativaCodigos, string? CodigoVoluntarioVinculado, string? Obs);
 
-public sealed class HinovaAuthException() : Exception("Falha ao autenticar na Hinova.");
+public sealed class HinovaAuthException(HttpStatusCode statusCode = HttpStatusCode.Unauthorized,
+    bool extractionLimit = false, TimeSpan? retryAfter = null)
+    : Exception($"Hinova recusou a requisição (HTTP {(int)statusCode}).")
+{
+    public HttpStatusCode StatusCode { get; } = statusCode;
+    public bool IsExtractionLimit { get; } = extractionLimit || statusCode == HttpStatusCode.TooManyRequests;
+    public TimeSpan? RetryAfter { get; } = extractionLimit || statusCode == HttpStatusCode.TooManyRequests
+        ? retryAfter is { Ticks: > 0 } ? retryAfter : TimeSpan.FromMinutes(10) : null;
+    public string Code => IsExtractionLimit ? "hinova.limite_extracao" : StatusCode switch
+    {
+        HttpStatusCode.Unauthorized => "hinova.credenciais_invalidas",
+        HttpStatusCode.Forbidden => "hinova.acesso_recusado",
+        _ => "hinova.autenticacao_indisponivel"
+    };
+
+    public static HinovaAuthException FromResponse(HttpStatusCode status, string body, TimeSpan? retryAfter = null)
+    {
+        // Keep the vendor response out of exceptions/logs: it may contain sensitive fields.
+        var limit = body.Contains("excesso", StringComparison.OrdinalIgnoreCase)
+            && (body.Contains("extra", StringComparison.OrdinalIgnoreCase)
+                || body.Contains("requisi", StringComparison.OrdinalIgnoreCase));
+        return new HinovaAuthException(status, limit, retryAfter);
+    }
+}

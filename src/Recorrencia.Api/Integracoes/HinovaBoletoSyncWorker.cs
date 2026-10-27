@@ -16,6 +16,7 @@ public sealed class HinovaBoletoSyncWorker(IServiceScopeFactory scopes, ILogger<
         public DateOnly? PagamentoFim { get; set; }
         public DateOnly? AgendadoPara { get; set; }
         public bool SomenteVencimentos { get; set; }
+        public bool SomentePagamentos { get; set; }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -72,7 +73,7 @@ public sealed class HinovaBoletoSyncWorker(IServiceScopeFactory scopes, ILogger<
                 {
                     var candidate = await tx.QuerySingleOrDefaultAsync<Job>(
                         """
-                        select id, tenant_id, requested_by, competencia, pagamento_inicio, pagamento_fim, agendado_para, somente_vencimentos
+                        select id, tenant_id, requested_by, competencia, pagamento_inicio, pagamento_fim, agendado_para, somente_vencimentos, somente_pagamentos
                           from hinova_boleto_sync_jobs
                          where status = 'queued' and (retry_after is null or retry_after <= now())
                          order by requested_at for update skip locked limit 1
@@ -120,7 +121,7 @@ public sealed class HinovaBoletoSyncWorker(IServiceScopeFactory scopes, ILogger<
                                         progress.VencimentoVinculados });
                                 return 0;
                             }, token);
-                        }, incluirVencimentos: true, pagamentoInicio: job.PagamentoInicio,
+                        }, incluirVencimentos: !job.SomentePagamentos, pagamentoInicio: job.PagamentoInicio,
                         pagamentoFim: job.PagamentoFim, ignorarImportados: job.AgendadoPara is not null, somenteVencimentos: job.SomenteVencimentos);
                     await db.AsPlatformAsync(null, async tx =>
                     {
@@ -153,18 +154,30 @@ public sealed class HinovaBoletoSyncWorker(IServiceScopeFactory scopes, ILogger<
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "Falha na sincronização de boletos {JobId}", job.Id);
-                    var code = ex is ApiProblem problem ? problem.Code : "internal.error";
+                    var code = ex switch
+                    {
+                        ApiProblem problem => problem.Code,
+                        HinovaAuthException hinovaError => hinovaError.Code,
+                        _ => "internal.error"
+                    };
+                    var vendorDelay = ex switch
+                    {
+                        ApiProblem problem => problem.RetryAfter,
+                        HinovaAuthException hinovaError => hinovaError.RetryAfter,
+                        _ => null
+                    };
+                    var retrySeconds = Math.Max(900, (int)Math.Ceiling(vendorDelay?.TotalSeconds ?? 0));
                     await db.AsPlatformAsync(null, async tx =>
                     {
                         await tx.ExecuteAsync(
                             """
                             update hinova_boleto_sync_jobs
-                               set status = case when agendado_para is not null and tentativas < 3 then 'queued' else 'failed' end,
-                                   fase = case when agendado_para is not null and tentativas < 3 then 'aguardando_nova_tentativa' else 'falhou' end,
-                                   retry_after = case when agendado_para is not null and tentativas < 3 then now() + interval '15 minutes' else null end,
+                               set status = case when (agendado_para is not null or @code = 'hinova.limite_extracao') and tentativas < 3 then 'queued' else 'failed' end,
+                                   fase = case when (agendado_para is not null or @code = 'hinova.limite_extracao') and tentativas < 3 then 'aguardando_nova_tentativa' else 'falhou' end,
+                                   retry_after = case when (agendado_para is not null or @code = 'hinova.limite_extracao') and tentativas < 3 then now() + @retrySeconds * interval '1 second' else null end,
                                    finished_at = now(), error_code = @code
                              where id = @id
-                            """, new { job.Id, code });
+                            """, new { job.Id, code, retrySeconds });
                         return 0;
                     }, stoppingToken);
                 }

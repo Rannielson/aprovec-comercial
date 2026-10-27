@@ -4,10 +4,11 @@ using Npgsql;
 
 namespace Recorrencia.Api.Infrastructure;
 
-public sealed class ApiProblem(int status, string code) : Exception(code)
+public sealed class ApiProblem(int status, string code, TimeSpan? retryAfter = null) : Exception(code)
 {
     public int Status { get; } = status;
     public string Code { get; } = code;
+    public TimeSpan? RetryAfter { get; } = retryAfter;
 }
 
 public sealed class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorHandlingMiddleware> logger)
@@ -39,7 +40,11 @@ public sealed class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorH
         }
         catch (ApiProblem problem)
         {
-            await WriteAsync(context, problem.Status, problem.Code);
+            await WriteAsync(context, problem.Status, problem.Code, retryAfter: problem.RetryAfter);
+        }
+        catch (Recorrencia.Api.Integracoes.HinovaAuthException hinova)
+        {
+            await WriteAsync(context, StatusCodes.Status503ServiceUnavailable, hinova.Code, retryAfter: hinova.RetryAfter);
         }
         catch (BadHttpRequestException)
         {
@@ -61,12 +66,14 @@ public sealed class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorH
         }
     }
 
-    private static Task WriteAsync(HttpContext context, int status, string code, string? correlationId = null)
+    private static Task WriteAsync(HttpContext context, int status, string code, string? correlationId = null, TimeSpan? retryAfter = null)
     {
         if (context.Response.HasStarted)
             return Task.CompletedTask;
         context.Response.Clear();
         context.Response.StatusCode = status;
+        if (retryAfter is { } delay)
+            context.Response.Headers.RetryAfter = Math.Ceiling(delay.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
         return context.Response.WriteAsJsonAsync(
             new ProblemBody("about:blank", code, status, code, correlationId),
             (JsonSerializerOptions?)null,

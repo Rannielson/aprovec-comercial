@@ -54,6 +54,24 @@ public class CommissionTests(ApiFixture api)
     }
 
     [Fact]
+    public async Task Admin_can_review_reimported_data_without_changing_confirmed_payouts()
+    {
+        var s=await api.SeedAsync();
+        var closing=await SeedFrozenFechamentoAsync(s,new DateOnly(2026,9,1),(s.Joao,s.Joao));
+        var admin=await LoginAsync(s,"admin");
+        var review=await admin.GetJsonAsync<CommissionsDto>("/commissions/2026-09?recalculate=true");
+        Assert.Equal("live_review",review.Source);
+        Assert.Equal(1600m,review.Beneficiaries.Single(b=>b.UserId==s.Joao).Total);
+        var saved=await admin.GetJsonAsync<CommissionsDto>("/commissions/2026-09");
+        Assert.Equal("snapshot",saved.Source);
+        Assert.Equal(70m,saved.Beneficiaries.Single(b=>b.UserId==s.Joao).Total);
+        Assert.Equal("confirmado",await api.SqlScalarAsync<string>("select status from fechamentos where id=@closing",new {closing}));
+        var consultant=await LoginAsync(s,"joao");
+        var forbidden=await consultant.GetAsync("/commissions/2026-09?recalculate=true");
+        Assert.Equal(HttpStatusCode.Forbidden,forbidden.StatusCode);
+    }
+
+    [Fact]
     public async Task Consultor_sees_own_and_first_level_commission()
     {
         var s = await api.SeedAsync();

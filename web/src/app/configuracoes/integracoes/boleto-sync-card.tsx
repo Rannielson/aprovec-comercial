@@ -107,7 +107,7 @@ export function BoletoSyncCard({ initialJobs, currentMonth }: {
                     {job.status === 'running' && <progress className="sync-progress" value={progress.total ? progress.current : undefined} max={progress.total ?? 1} aria-label={progress.title} />}
                     <p className="muted sync-counts">Pagamentos: {job.pagamentosProcessados} de {job.totalBoletos ?? '…'} analisados · {job.importados ?? 0} importados.</p>
                     <p className="muted sync-counts">Carteira por vencimento: {job.vencimentosProcessados} de {job.vencimentoRetornados ?? '…'} analisados · {job.vencimentoVinculados ?? 0} vinculados.</p>
-                    {job.fase === 'aguardando_nova_tentativa' && <p className="muted" role="status">A consulta falhou. Uma nova tentativa ocorrerá automaticamente em até 15 minutos; a execução ainda não foi concluída.</p>}
+                    {job.fase === 'aguardando_nova_tentativa' && <p className="muted" role="status">{job.errorCode === 'hinova.limite_extracao' ? 'Aguardando a liberação automática do limite da Hinova. A próxima tentativa respeitará a pausa de segurança.' : 'A consulta falhou. Uma nova tentativa ocorrerá automaticamente após o intervalo de segurança; a execução ainda não foi concluída.'}</p>}
                     {job.status === 'failed' && <p className="error">{messageFor(job.errorCode ?? 'internal.error')} Os boletos já gravados permanecem salvos; você pode repetir o mês sem duplicá-los.</p>}
                     {job.status === 'completed' && <p className="success">Sincronização concluída sem erro.</p>}
                   </td></tr>

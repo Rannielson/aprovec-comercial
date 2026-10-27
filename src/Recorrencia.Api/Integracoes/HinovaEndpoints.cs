@@ -80,9 +80,9 @@ public static class HinovaEndpoints
         {
             await hinova.AutenticarAsync(body.Usuario, body.Senha, body.TokenSga, ct);
         }
-        catch (HinovaAuthException)
+        catch (HinovaAuthException ex)
         {
-            throw new ApiProblem(StatusCodes.Status400BadRequest, "hinova.credenciais_invalidas");
+            throw HinovaAuth.ToProblem(ex);
         }
 
         await db.InTenantAsync(tenant, actor, async tx =>

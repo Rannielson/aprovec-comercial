@@ -68,6 +68,7 @@ builder.Services.AddSingleton<LoginThrottle>();
 
 builder.Services.AddSingleton<AesGcmCipher>();
 builder.Services.AddSingleton<HinovaTokenCache>();
+builder.Services.AddSingleton<HinovaRequestThrottle>();
 builder.Services.AddHostedService<HinovaBoletoSyncWorker>();
 builder.Services.AddHostedService<SolicitacaoCadastroWorker>();
 if (builder.Configuration.GetValue<bool>("Hinova:UseFake"))

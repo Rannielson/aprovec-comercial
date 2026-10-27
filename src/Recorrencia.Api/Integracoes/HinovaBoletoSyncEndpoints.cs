@@ -7,12 +7,13 @@ namespace Recorrencia.Api.Integracoes;
 
 public static class HinovaBoletoSyncEndpoints
 {
-    public sealed record StartRequest(string? Competencia, bool SomenteVencimentos = false);
+    public sealed record StartRequest(string? Competencia, bool SomenteVencimentos = false, bool SomentePagamentos = false);
     public sealed class JobResponse
     {
         public Guid Id { get; set; }
         public DateOnly Competencia { get; set; }
         public string Status { get; set; } = "";
+        public bool SomentePagamentos { get; set; }
         public string Fase { get; set; } = "";
         public DateTimeOffset RequestedAt { get; set; }
         public DateTimeOffset? StartedAt { get; set; }
@@ -40,6 +41,8 @@ public static class HinovaBoletoSyncEndpoints
 
     private static async Task<IResult> StartAsync(StartRequest body, RequestContext request, Database db, CancellationToken ct)
     {
+        if (body.SomenteVencimentos && body.SomentePagamentos)
+            throw new ApiProblem(StatusCodes.Status400BadRequest, "request.invalid");
         if (string.IsNullOrWhiteSpace(body.Competencia))
             throw new ApiProblem(StatusCodes.Status400BadRequest, "commission.invalid_competencia");
         var competencia = CommissionService.ParseCompetencia(body.Competencia);
@@ -62,14 +65,14 @@ public static class HinovaBoletoSyncEndpoints
 
             var id = await tx.ExecuteScalarAsync<Guid?>(
                 """
-                insert into hinova_boleto_sync_jobs (tenant_id, competencia, requested_by, somente_vencimentos)
-                values (@tenant, @competencia, @actor, @SomenteVencimentos)
+                insert into hinova_boleto_sync_jobs (tenant_id, competencia, requested_by, somente_vencimentos, somente_pagamentos)
+                values (@tenant, @competencia, @actor, @SomenteVencimentos, @SomentePagamentos)
                 on conflict (tenant_id, competencia) where status in ('queued', 'running') do nothing
                 returning id
-                """, new { tenant, competencia, actor, body.SomenteVencimentos });
+                """, new { tenant, competencia, actor, body.SomenteVencimentos, body.SomentePagamentos });
             return await tx.QuerySingleAsync<JobResponse>(
                 """
-                select id, competencia, status, fase, requested_at, started_at, finished_at, total_boletos,
+                select id, competencia, status, fase, somente_pagamentos, requested_at, started_at, finished_at, total_boletos,
                        importados, sem_vinculo, conflito_multiplo_vendedor, nao_pago,
                        vencimento_retornados, vencimento_vinculados, pagamentos_consultados,
                        pagamentos_processados, vencimentos_consultados, vencimentos_processados, error_code
@@ -88,7 +91,7 @@ public static class HinovaBoletoSyncEndpoints
         var actor = request.RequireUser();
         var jobs = await db.InTenantAsync(tenant, actor, tx => tx.QueryAsync<JobResponse>(
             """
-            select id, competencia, status, fase, requested_at, started_at, finished_at, total_boletos,
+            select id, competencia, status, fase, somente_pagamentos, requested_at, started_at, finished_at, total_boletos,
                    importados, sem_vinculo, conflito_multiplo_vendedor, nao_pago,
                    vencimento_retornados, vencimento_vinculados, pagamentos_consultados,
                    pagamentos_processados, vencimentos_consultados, vencimentos_processados, error_code
@@ -104,7 +107,7 @@ public static class HinovaBoletoSyncEndpoints
         var actor = request.RequireUser();
         var job = await db.InTenantAsync(tenant, actor, tx => tx.QuerySingleOrDefaultAsync<JobResponse>(
             """
-            select id, competencia, status, fase, requested_at, started_at, finished_at, total_boletos,
+            select id, competencia, status, fase, somente_pagamentos, requested_at, started_at, finished_at, total_boletos,
                    importados, sem_vinculo, conflito_multiplo_vendedor, nao_pago,
                    vencimento_retornados, vencimento_vinculados, pagamentos_consultados,
                    pagamentos_processados, vencimentos_consultados, vencimentos_processados, error_code

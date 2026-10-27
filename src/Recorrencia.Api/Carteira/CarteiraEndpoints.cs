@@ -84,9 +84,9 @@ public static class CarteiraEndpoints
             token = await hinova.AutenticarAsync(cipher.Decrypt(credentials.UsuarioEnc),
                 cipher.Decrypt(credentials.SenhaEnc), cipher.Decrypt(credentials.TokenSgaEnc), ct);
         }
-        catch (HinovaAuthException)
+        catch (HinovaAuthException ex)
         {
-            throw new ApiProblem(StatusCodes.Status503ServiceUnavailable, "hinova.credenciais_invalidas");
+            throw HinovaAuth.ToProblem(ex, StatusCodes.Status503ServiceUnavailable);
         }
 
         // Recheck the exact boleto at click time. Any upstream failure stops the redirect.

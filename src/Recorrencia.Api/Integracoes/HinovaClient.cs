@@ -7,7 +7,7 @@ using System.Text.Json.Serialization;
 
 namespace Recorrencia.Api.Integracoes;
 
-public sealed class HinovaClient(HttpClient http, HinovaTokenCache? tokenCache = null) : IHinovaClient
+public sealed class HinovaClient(HttpClient http, HinovaTokenCache? tokenCache = null, HinovaRequestThrottle? throttle = null) : IHinovaClient
 {
     private (string Usuario, string Senha, string TokenSga)? _credentials;
 
@@ -27,12 +27,21 @@ public sealed class HinovaClient(HttpClient http, HinovaTokenCache? tokenCache =
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenSga);
 
+        if (throttle is not null) await throttle.WaitAsync(ct);
         using var response = await http.SendAsync(request, ct);
+        var text = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
-            throw new HinovaAuthException();
-
-        var body = await response.Content.ReadFromJsonAsync<AutenticarResponse>(cancellationToken: ct);
-        return body?.TokenUsuario ?? throw new HinovaAuthException();
+            throw HinovaAuthException.FromResponse(response.StatusCode, text, RetryAfter(response));
+        try
+        {
+            var body = JsonSerializer.Deserialize<AutenticarResponse>(text);
+            return !string.IsNullOrWhiteSpace(body?.TokenUsuario) ? body.TokenUsuario
+                : throw HinovaAuthException.FromResponse(HttpStatusCode.BadGateway, text, RetryAfter(response));
+        }
+        catch (JsonException)
+        {
+            throw new HinovaAuthException(HttpStatusCode.BadGateway);
+        }
     }
 
     public async Task<IReadOnlyList<HinovaVoluntario>> ListarVoluntariosAsync(string tokenUsuario, CancellationToken ct)
@@ -170,7 +179,9 @@ public sealed class HinovaClient(HttpClient http, HinovaTokenCache? tokenCache =
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokenUsuario);
 
         // A creation is sent once; only read operations are replayed after token refresh.
+        if (throttle is not null) await throttle.WaitAsync(ct);
         using var response = await http.SendAsync(httpRequest, ct);
+        await ThrowIfVendorBlockedAsync(response, ct);
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<CadastrarResponseDto>(cancellationToken: ct);
@@ -244,17 +255,40 @@ public sealed class HinovaClient(HttpClient http, HinovaTokenCache? tokenCache =
         return ParseBoleto(doc.RootElement);
     }
 
+    private static TimeSpan? RetryAfter(HttpResponseMessage response) =>
+        response.Headers.RetryAfter?.Delta ?? (response.Headers.RetryAfter?.Date is { } date
+            ? date - DateTimeOffset.UtcNow : null);
+
+    private async Task ThrowIfVendorBlockedAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (response.StatusCode is not (HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)) return;
+        var text = await response.Content.ReadAsStringAsync(ct);
+        var exception = HinovaAuthException.FromResponse(response.StatusCode, text, RetryAfter(response));
+        if (exception.IsExtractionLimit && tokenCache is not null && _credentials is { } c)
+            await tokenCache.BlockAsync(HinovaTokenCache.Key(c.Usuario, c.Senha, c.TokenSga), exception, ct);
+        response.Dispose();
+        throw exception;
+    }
+
     private async Task<HttpResponseMessage> SendReadAsync(HttpRequestMessage request, CancellationToken ct)
     {
-        if (tokenCache is null || _credentials is not { } c) return await http.SendAsync(request, ct);
-        var key = HinovaTokenCache.Key(c.Usuario, c.Senha, c.TokenSga);
-        Task<string> Authenticate() => AuthenticateRawAsync(c.Usuario, c.Senha, c.TokenSga, ct);
-        var token = await tokenCache.GetAsync(key, Authenticate, ct);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        string? key = null;
+        var token = request.Headers.Authorization?.Parameter;
+        if (tokenCache is not null && _credentials is { } credentials)
+        {
+            key = HinovaTokenCache.Key(credentials.Usuario, credentials.Senha, credentials.TokenSga);
+            token = await tokenCache.GetAsync(key,
+                () => AuthenticateRawAsync(credentials.Usuario, credentials.Senha, credentials.TokenSga, ct), ct);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+        if (throttle is not null) await throttle.WaitAsync(ct);
         var response = await http.SendAsync(request, ct);
-        if (response.StatusCode != HttpStatusCode.Unauthorized) return response;
+        await ThrowIfVendorBlockedAsync(response, ct);
+        if (response.StatusCode != HttpStatusCode.Unauthorized || tokenCache is null || key is null || _credentials is not { } c)
+            return response;
         response.Dispose();
-        var refreshed = await tokenCache.GetAsync(key, Authenticate, ct, invalidToken: token);
+        var refreshed = await tokenCache.GetAsync(key,
+            () => AuthenticateRawAsync(c.Usuario, c.Senha, c.TokenSga, ct), ct, invalidToken: token);
         using var retry = new HttpRequestMessage(request.Method, request.RequestUri);
         foreach (var header in request.Headers)
             retry.Headers.TryAddWithoutValidation(header.Key, header.Value);
@@ -265,7 +299,10 @@ public sealed class HinovaClient(HttpClient http, HinovaTokenCache? tokenCache =
             foreach (var header in request.Content.Headers)
                 retry.Content.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }
-        return await http.SendAsync(retry, ct);
+        if (throttle is not null) await throttle.WaitAsync(ct);
+        var retried = await http.SendAsync(retry, ct);
+        await ThrowIfVendorBlockedAsync(retried, ct);
+        return retried;
     }
 
     private static HinovaBoleto ParseBoleto(JsonElement el)

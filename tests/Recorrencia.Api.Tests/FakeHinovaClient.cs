@@ -8,6 +8,7 @@ public sealed class FakeHinovaClient : IHinovaClient
     public Task<HinovaBoleto?> BuscarBoletoAsync(string tokenUsuario, string nossoNumero, CancellationToken ct) => Task.FromResult(BoletosPorNumero.GetValueOrDefault(nossoNumero));
 
     public bool RejectAuth { get; set; }
+    public HinovaAuthException? AuthFailure { get; set; }
     public List<HinovaVoluntario> Voluntarios { get; } =
     [
         new HinovaVoluntario("101", "Ana Paula Ferreira", "11122233344", "(31)99111-2233", ["Cooperativa Central"]),
@@ -30,7 +31,7 @@ public sealed class FakeHinovaClient : IHinovaClient
     public Func<HinovaBoletoPeriodoFiltro, CancellationToken, Task>? BeforeListBoletos { get; set; }
 
     public Task<string> AutenticarAsync(string usuario, string senha, string tokenSga, CancellationToken ct) =>
-        RejectAuth ? throw new HinovaAuthException() : Task.FromResult("token-usuario-fake");
+        AuthFailure is { } error ? throw error : RejectAuth ? throw new HinovaAuthException() : Task.FromResult("token-usuario-fake");
 
     public Task<IReadOnlyList<HinovaVoluntario>> ListarVoluntariosAsync(string tokenUsuario, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<HinovaVoluntario>>(Voluntarios);

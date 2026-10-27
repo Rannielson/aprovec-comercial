@@ -58,6 +58,27 @@ public class HinovaCredenciaisTests(ApiFixture api)
         }
     }
 
+    [Fact]
+    public async Task Extraction_block_preserves_credentials_and_reports_cooldown_instead_of_invalid_password()
+    {
+        var s = await api.SeedAsync();
+        var admin = await LoginAsAdminAsync(s);
+        await ApiClient.ExpectAsync(await admin.PutAsync("/integracoes/hinova/credenciais",
+            new { usuario="old",senha="valid",tokenSga="key" }), HttpStatusCode.NoContent);
+        var before = await admin.GetJsonAsync<StatusDto>("/integracoes/hinova/credenciais");
+        api.Hinova.AuthFailure = new Recorrencia.Api.Integracoes.HinovaAuthException(HttpStatusCode.Forbidden, extractionLimit:true);
+        try
+        {
+            var response = await admin.PutAsync("/integracoes/hinova/credenciais",new {usuario="new",senha="new",tokenSga="new"});
+            Assert.Equal(HttpStatusCode.ServiceUnavailable,response.StatusCode);
+            Assert.Equal("hinova.limite_extracao",await ApiClient.CodeAsync(response));
+            Assert.Equal(TimeSpan.FromMinutes(10),response.Headers.RetryAfter!.Delta);
+            var after = await admin.GetJsonAsync<StatusDto>("/integracoes/hinova/credenciais");
+            Assert.Equal(before.AtualizadoEm,after.AtualizadoEm);
+        }
+        finally {api.Hinova.AuthFailure=null;}
+    }
+
     [Theory]
     [InlineData("GET", "/integracoes/hinova/credenciais")]
     [InlineData("PUT", "/integracoes/hinova/credenciais")]

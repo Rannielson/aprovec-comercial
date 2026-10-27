@@ -30,7 +30,7 @@ export type BeneficiaryCommission = { userId: string; name: string | null; total
 export type Commissions = {
   competencia: string;
   status: string;
-  source: 'live' | 'snapshot';
+  source: 'live' | 'snapshot' | 'live_review';
   total: number;
   beneficiaries: BeneficiaryCommission[];
 };

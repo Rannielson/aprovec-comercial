@@ -59,6 +59,48 @@ public class HinovaBoletoImportTests(ApiFixture api)
     }
 
     [Fact]
+    public async Task Payment_only_sync_respects_extraction_pause_then_imports_selected_month_without_due_history()
+    {
+        var s=await api.SeedAsync();var admin=await LoginAsAdminAsync(s);
+        await ConfigureCredentialsAsync(admin);
+        await ApiClient.ExpectAsync(await admin.PostAsync("/integracoes/hinova/mapeamentos",
+            new {userId=s.Joao,codigoVoluntario="101",nomeHinova="Consultor",cpfHinova="11122233344"}),HttpStatusCode.Created);
+        SetPage(api,Boleto("paid-only-"+s.TenantId,100m,"2026-09-15",("101","ABC1D23")));
+        api.Hinova.AuthFailure=new HinovaAuthException(HttpStatusCode.Forbidden,extractionLimit:true);
+        var filters=new List<HinovaBoletoPeriodoFiltro>();
+        api.Hinova.BeforeListBoletos=(filter,_)=>{filters.Add(filter);return Task.CompletedTask;};
+        try
+        {
+            var response=await admin.PostAsync("/integracoes/hinova/boletos/syncs",new {competencia="2026-09",somentePagamentos=true});
+            await ApiClient.ExpectAsync(response,HttpStatusCode.Accepted);
+            var start=(await response.Content.ReadFromJsonAsync<SyncJobDto>(ApiClient.Json))!;
+            SyncJobDto? job=null;
+            for(var i=0;i<100;i++)
+            {
+                job=await admin.GetJsonAsync<SyncJobDto>($"/integracoes/hinova/boletos/syncs/{start.Id}");
+                if(job.Fase=="aguardando_nova_tentativa")break;
+                await Task.Delay(100);
+            }
+            Assert.Equal("queued",job?.Status);
+            Assert.Equal("hinova.limite_extracao",job?.ErrorCode);
+            Assert.Empty(filters);
+            Assert.True(await api.SqlScalarAsync<bool>("select retry_after>=now()+interval '14 minutes' from hinova_boleto_sync_jobs where id=@id",new {id=start.Id}));
+            api.Hinova.AuthFailure=null;
+            await api.SqlAsync("update hinova_boleto_sync_jobs set retry_after=now()-interval '1 second' where id=@id",new {id=start.Id});
+            for(var i=0;i<100;i++)
+            {
+                job=await admin.GetJsonAsync<SyncJobDto>($"/integracoes/hinova/boletos/syncs/{start.Id}");
+                if(job.Status is "completed" or "failed")break;
+                await Task.Delay(100);
+            }
+            Assert.Equal("completed",job?.Status);
+            Assert.Equal(1,job?.Importados);
+            Assert.All(filters,f=>{Assert.False(f.FiltrarPorVencimento);Assert.Equal(new DateOnly(2026,9,1),f.DataPagamentoInicial);Assert.Equal(new DateOnly(2026,9,30),f.DataPagamentoFinal);});
+        }
+        finally {api.Hinova.AuthFailure=null;api.Hinova.BeforeListBoletos=null;}
+    }
+
+    [Fact]
     public async Task Oversized_page_failure_reduces_page_size_without_losing_or_repeating_records()
     {
         var s=await api.SeedAsync();

@@ -42,7 +42,7 @@ public class CarteiraWhatsappTests(ApiFixture api)
     [InlineData("EXCLUIDO", false, "cancelado")]
     [InlineData("CANCELADO", false, "cancelado")]
     [InlineData("DESCONHECIDO", false, "atraso")]
-    [InlineData("BAIXADO", false, "atraso")]
+    [InlineData("BAIXADO", false, "cancelado")]
     public async Task Live_verification_blocks_collection_and_reconciles_settled_boleto(string situacao, bool paid, string expectedStatus)
     {
         var s = await api.SeedAsync();

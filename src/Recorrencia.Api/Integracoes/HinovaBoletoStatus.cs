@@ -7,7 +7,8 @@ public static class HinovaBoletoStatus
     public static bool IsClosed(HinovaBoleto b)
     {
         var status = b.SituacaoBoleto?.Trim().ToUpperInvariant() ?? "";
-        return status.Contains("CANCEL") || status.Contains("EXCLU") || status.Contains("ESTORN");
+        return status.Contains("CANCEL") || status.Contains("EXCLU") || status.Contains("ESTORN")
+            || status.StartsWith("BAIXADO");
     }
 
     // An unknown state or an incomplete settlement must never authorize collection.

@@ -146,6 +146,7 @@ public class HinovaBoletoImportTests(ApiFixture api)
     }
 
     [Theory]
+    [InlineData("BAIXADO")]
     [InlineData("EXCLUIDO")]
     [InlineData("EXCLUÍDO")]
     [InlineData("CANCELADO")]

@@ -76,7 +76,7 @@ export function PersonDetail({
       </div>
       <dl className="detail-list">
         <div>
-          <dt>Base própria recebida</dt>
+          <dt>Base própria líquida recebida</dt>
           <dd>{p.valuesHidden ? '—' : money(p.recebido)}</dd>
         </div>
         <div>
@@ -86,7 +86,7 @@ export function PersonDetail({
         {levelResults.map((rule) => (
           <Fragment key={rule.level}>
             <div>
-              <dt>Base da supervisão · {rule.level}º nível</dt>
+              <dt>Base líquida da supervisão · {rule.level}º nível</dt>
               <dd>{p.valuesHidden ? '—' : money(rule.base)}</dd>
             </div>
             <div>

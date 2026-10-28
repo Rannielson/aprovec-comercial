@@ -148,3 +148,5 @@ Para criar o primeiro administrador da plataforma num deploy em containers:
 ```sh
 docker compose run --rm -e PLATFORM_ADMIN_PASSWORD=troque-me api create-platform-admin admin@seu-dominio
 ```
+
+A composição da árvore usa `/commissions/{competencia}/current`: apuração líquida atual, limitada aos beneficiários autorizados do usuário, inclusive em meses com demonstrativo confirmado. O demonstrativo de pagamento segue consultando a memória de cálculo congelada; consultar a árvore não revisa nem confirma pagamentos.

@@ -47,6 +47,7 @@ public static class CommissionEndpoints
 
     public static void MapCommissionEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapGet("/commissions/{competencia}/current", CurrentAsync).RequirePermission("comissoes.visualizar");
         app.MapGet("/commissions/{competencia}/pending-fees", PendingFeesAsync).RequirePermission("comissoes.visualizar").RequirePermission("integracoes.gerenciar");
         app.MapGet("/commissions/{competencia}", SummaryAsync).RequirePermission("comissoes.visualizar");
         app.MapGet("/commissions/{competencia}/entries", EntriesAsync).RequirePermission("comissoes.visualizar");
@@ -112,18 +113,27 @@ public static class CommissionEndpoints
         return Results.Ok(response);
     }
 
-    private static async Task<IResult> SummaryAsync(string competencia, bool? recalculate, RequestContext request, Database db, CancellationToken ct)
+    // Operational tree values are a live scoped calculation, distinct from the immutable
+    // payout statement. The same beneficiary authorization applies to both sources.
+    private static Task<IResult> CurrentAsync(string competencia, RequestContext request, Database db, CancellationToken ct) =>
+        SummaryCoreAsync(competencia, true, false, request, db, ct);
+
+    private static Task<IResult> SummaryAsync(string competencia, bool? recalculate, RequestContext request, Database db, CancellationToken ct) =>
+        SummaryCoreAsync(competencia, recalculate, true, request, db, ct);
+
+    private static async Task<IResult> SummaryCoreAsync(string competencia, bool? recalculate, bool reviewRequiresAdmin,
+        RequestContext request, Database db, CancellationToken ct)
     {
         var month = CommissionService.ParseCompetencia(competencia);
         var response = await db.InTenantAsync(request.RequireTenant(), request.RequireUser(), async tx =>
         {
-            if (recalculate is true && !await tx.ExecuteScalarAsync<bool>(
+            if (recalculate is true && reviewRequiresAdmin && !await tx.ExecuteScalarAsync<bool>(
                 "select app.has_permission('fechamento.confirmar') and app.scope_for('comissoes.visualizar') = 'tenant'"))
                 throw new ApiProblem(StatusCodes.Status403Forbidden, "fechamento.requires_full_visibility");
             var beneficiaries = await tx.ExecuteScalarAsync<Guid[]>("select app.commission_beneficiaries()") ?? [];
             var loaded = await CommissionService.LoadAsync(tx, month, beneficiaries);
             if (recalculate is true)
-                loaded = new CommissionService.LoadedCommissions(loaded.Status, "live_review",
+                loaded = new CommissionService.LoadedCommissions(reviewRequiresAdmin ? loaded.Status : "apuracao", reviewRequiresAdmin ? "live_review" : "current",
                     await CommissionService.CalculateLiveAsync(tx, month, beneficiaries));
 
             var summary = CommissionSummary.ByBeneficiary(loaded.Entries);

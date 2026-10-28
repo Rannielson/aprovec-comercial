@@ -1,3 +1,4 @@
+import { AutoRefresh } from '../../components/auto-refresh';
 import { notFound } from 'next/navigation';
 import { AppShell } from '../../app-shell';
 import { ApiError, apiFetch, currentHost } from '@/lib/api';
@@ -53,7 +54,7 @@ export default async function ArvorePage({
   const canSeePlans = has('regras_comissao.visualizar');
   const [users, commissions, plans] = await Promise.all([
     apiFetch<UserNode[]>('/users'),
-    showValues ? apiFetch<Commissions>(`/commissions/${competencia}`) : Promise.resolve(null),
+    showValues ? apiFetch<Commissions>(`/commissions/${competencia}/current`) : Promise.resolve(null),
     canSeePlans ? apiFetch<CommissionPlan[]>('/commission-plans') : Promise.resolve([]),
   ]);
 
@@ -125,6 +126,7 @@ export default async function ArvorePage({
 
   return (
     <AppShell me={me} active="arvore">
+      <AutoRefresh />
       <div className="shell">
         <div className="page-heading with-action">
           <div>
@@ -140,6 +142,9 @@ export default async function ArvorePage({
           )}
         </div>
 
+        {showValues && commissions?.source === 'current' && (
+          <p className="muted">Apuração atual sobre valores líquidos. <a href={`/fechamento?competencia=${competencia}`}>Consultar o demonstrativo de pagamento</a>.</p>
+        )}
         <section className="card pyramid-panel">
           <div className="pyramid-header">
             <div>
@@ -195,7 +200,7 @@ export default async function ArvorePage({
                     <th>Perfil</th>
                     <th>Indicador direto</th>
                     <th className="number">Taxa</th>
-                    <th className="number">Recebidos na carteira</th>
+                    <th className="number">Líquido recebido na carteira</th>
                     <th className="number">Comissão total</th>
                   </tr>
                 </thead>

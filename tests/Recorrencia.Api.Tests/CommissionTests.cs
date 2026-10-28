@@ -69,6 +69,15 @@ public class CommissionTests(ApiFixture api)
         var consultant=await LoginAsync(s,"joao");
         var forbidden=await consultant.GetAsync("/commissions/2026-09?recalculate=true");
         Assert.Equal(HttpStatusCode.Forbidden,forbidden.StatusCode);
+        var current = await consultant.GetJsonAsync<CommissionsDto>("/commissions/2026-09/current");
+        Assert.Equal("current", current.Source);
+        Assert.Equal("apuracao", current.Status);
+        Assert.Single(current.Beneficiaries);
+        Assert.Equal(s.Joao, current.Beneficiaries.Single().UserId);
+        Assert.Equal(1600m, current.Beneficiaries.Single().Total);
+        var savedAgain = await admin.GetJsonAsync<CommissionsDto>("/commissions/2026-09");
+        Assert.Equal(70m, savedAgain.Beneficiaries.Single(b=>b.UserId==s.Joao).Total);
+        Assert.Equal("confirmado", savedAgain.Status);
     }
 
     [Fact]

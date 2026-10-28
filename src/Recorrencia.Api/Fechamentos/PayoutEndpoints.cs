@@ -17,7 +17,7 @@ public static class PayoutEndpoints
         IReadOnlyList<BonusPlacasCalculator.PlacaPaga> Placas);
     public sealed record BonusExtraResponse(string PlanoNome, decimal Valor, DateTimeOffset AprovadoEm);
     public sealed record RegraArvoreResponse(RuleType RuleType, int? Level, Guid? GroupId,
-        string? GroupName, decimal Rate, decimal Base, decimal Amount);
+        string? GroupName, decimal Rate, decimal Base, decimal Amount, decimal GrossBase = 0, decimal BankFee = 0);
     public sealed record BeneficiarioResponse(Guid UserId, string Name, decimal Arvore, decimal Placas,
         decimal Extra, decimal Total, IReadOnlyList<RegraArvoreResponse> RegrasArvore,
         BonusPlacasResponse? BonusPlacas, BonusExtraResponse? BonusExtra,
@@ -143,7 +143,7 @@ public static class PayoutEndpoints
                 placas, valorExtra, arvore + placas + valorExtra,
                 treeEntry?.ByRule.Select(r => new RegraArvoreResponse(r.RuleType, r.Level, r.GroupId,
                     r.GroupId is { } groupId ? groupNames.GetValueOrDefault(groupId) : null,
-                    r.Rate, r.Base, r.Amount)).ToList() ?? [], bonus,
+                    r.Rate, r.Base, r.Amount, r.GrossBase, r.BankFee)).ToList() ?? [], bonus,
                 extra, preview && !finalizado ? user?.ExtraDisponivel : null));
         }
         beneficiaries = beneficiaries.OrderByDescending(b => b.Total).ThenBy(b => b.Name).ToList();

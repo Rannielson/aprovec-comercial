@@ -94,7 +94,7 @@ export default async function ComissoesPage({
           <div className="panel-header">
             <div>
               <h2>Origem dos ganhos</h2>
-              <p>Uma base de cálculo clara para cada comissão</p>
+              <p>Bruto menos tarifas forma a base líquida. A comissão soma os valores arredondados de cada boleto.</p>
             </div>
           </div>
           <div className="commission-tabs">
@@ -115,6 +115,7 @@ export default async function ComissoesPage({
                   <span>Base líquida recebida</span>
                   <strong>{formatMoney(ownRule?.base ?? 0)}</strong>
                 </div>
+                <span className="muted">Bruto {formatMoney(ownRule?.grossBase ?? ownRule?.base ?? 0)} − tarifas {formatMoney(ownRule?.bankFee ?? 0)}</span>
                 <span className="operator">×</span>
                 <div>
                   <span>Sua taxa</span>
@@ -147,7 +148,7 @@ export default async function ComissoesPage({
                             {entry.placa && <span className="plate">{entry.placa}</span>}
                           </td>
                           <td>{entry.pagoEm ? formatDate(entry.pagoEm) : '—'}</td>
-                          <td className="number">{formatMoney(entry.base)}</td>
+                          <td className="number">{formatMoney(entry.base)}<br /><small className="muted">{formatMoney(entry.grossBase ?? entry.base)} − {formatMoney(entry.bankFee ?? 0)}</small></td>
                           <td className="number">{formatMoney(entry.amount)}</td>
                         </tr>
                       ))}

@@ -28,6 +28,8 @@ public static class CommissionService
         public Guid BoletoId { get; set; }
         public Guid ParticipanteId { get; set; }
         public decimal Valor { get; set; }
+        public decimal ValorBruto { get; set; }
+        public decimal TarifaBancaria { get; set; }
     }
 
     public sealed class PathRow
@@ -56,6 +58,8 @@ public static class CommissionService
         public decimal Base { get; set; }
         public decimal Valor { get; set; }
         public int ContractSegment { get; set; }
+        public decimal? GrossBase { get; set; }
+        public decimal? BankFee { get; set; }
     }
 
     public sealed class VehicleContractRow
@@ -98,7 +102,7 @@ public static class CommissionService
         var rules = await tx.QueryAsync<RuleRow>(
             "select id, type, rate, level, group_id from commission_rules where plan_id = @planId", new { planId });
         var boletos = await tx.QueryAsync<SourceBoletoRow>(
-            "select boleto_id, participante_id, valor from app.commission_source_boletos(@competencia, @beneficiaries)",
+            "select boleto_id, participante_id, valor, valor_bruto, tarifa_bancaria from app.commission_source_financials(@competencia, @beneficiaries)",
             new { competencia, beneficiaries });
         var paths = await tx.QueryAsync<PathRow>(
             "select ancestor_id, descendant_id, depth from app.commission_source_paths(@competencia, @beneficiaries)",
@@ -116,7 +120,15 @@ public static class CommissionService
                 members.Select(m => new GroupMembership(m.GroupId, m.UserId)))
             .Where(e => wanted.Contains(e.BeneficiaryId))
             .ToList();
-        return await ApplyCutoffsAsync(tx, competencia, beneficiaries, false, entries);
+        var eligible = await ApplyCutoffsAsync(tx, competencia, beneficiaries, false, entries);
+        var sources = boletos.ToDictionary(b => b.BoletoId);
+        return eligible.Select(e => {
+            var b = sources[e.BoletoId];
+            // A cutoff can qualify only part of a multi-vehicle payment. Allocate the
+            // gross/fee proportionally to that eligible net segment; never duplicate it.
+            var gross = Math.Round(b.ValorBruto * e.Base / b.Valor, 2, MidpointRounding.ToEven);
+            return e with { GrossBase = gross, BankFee = gross - e.Base };
+        }).ToList();
     }
 
     public static async Task<IReadOnlyList<CommissionEntry>> ApplyCutoffsAsync(Tx tx, DateOnly competencia,
@@ -150,13 +162,13 @@ public static class CommissionService
     private static async Task<IReadOnlyList<CommissionEntry>> LoadSnapshotAsync(Tx tx, Guid fechamentoId, Guid[] beneficiaries) =>
         (await tx.QueryAsync<SnapshotRow>(
             """
-            select beneficiario_id, boleto_id, origem_participante_id, rule_id, rule_type, level, group_id, rate, base, valor, contract_segment
+            select beneficiario_id, boleto_id, origem_participante_id, rule_id, rule_type, level, group_id, rate, base, valor, contract_segment, gross_base, bank_fee
               from fechamento_detalhes
              where fechamento_id = @fechamentoId and beneficiario_id = any(@beneficiaries)
             """,
             new { fechamentoId, beneficiaries }))
         .Select(r => new CommissionEntry(r.BeneficiarioId, r.BoletoId, r.OrigemParticipanteId, r.RuleId,
-            ParseRuleType(r.RuleType), r.Level, r.GroupId, r.Rate, r.Base, r.Valor, r.ContractSegment))
+            ParseRuleType(r.RuleType), r.Level, r.GroupId, r.Rate, r.Base, r.Valor, r.ContractSegment, r.GrossBase, r.BankFee))
         .ToList();
 
     public static RuleType ParseRuleType(string value) => value switch

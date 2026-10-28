@@ -95,7 +95,7 @@ export async function TenantHome({ competencia }: { competencia?: string }) {
                       <th>Pessoa</th>
                       <th>Origem</th>
                       <th className="number">Taxa</th>
-                      <th className="number">Base paga</th>
+                      <th className="number">Base líquida</th>
                       <th className="number">Comissão</th>
                     </tr>
                   </thead>

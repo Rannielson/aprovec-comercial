@@ -17,6 +17,8 @@ export type Participante = {
   rate: number | null;
   /** Base of the `own` rule — what was received in their wallet. 0 without an `own` entry. */
   recebido: number;
+  grossReceived?: number;
+  bankFee?: number;
   /** Own-rule commission amount, as computed by the backend (base × rate, already rounded). */
   ownAmount: number;
   /** Everything they earned this competência (own + upline). 0 when absent from the commissions response. */
@@ -111,6 +113,8 @@ export function buildEstrutura(
       parentId: u.supervisorId !== null && sellerIds.has(u.supervisorId) ? u.supervisorId : null,
       rate: own?.rate ?? null,
       recebido: own?.base ?? 0,
+      grossReceived: own?.grossBase ?? own?.base ?? 0,
+      bankFee: own?.bankFee ?? 0,
       ownAmount: own?.amount ?? 0,
       comissao: b?.total ?? 0,
       referralRate: b?.byRule.find(isReferral)?.rate ?? null,

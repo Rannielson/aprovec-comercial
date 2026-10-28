@@ -7,11 +7,11 @@ namespace Recorrencia.Api.Commissions;
 
 public static class CommissionEndpoints
 {
-    public sealed record RuleTotalResponse(RuleType RuleType, int? Level, Guid? GroupId, string? GroupName, decimal Rate, decimal Base, decimal Amount);
+    public sealed record RuleTotalResponse(RuleType RuleType, int? Level, Guid? GroupId, string? GroupName, decimal Rate, decimal Base, decimal Amount, decimal GrossBase = 0, decimal BankFee = 0);
     public sealed record BeneficiaryResponse(Guid UserId, string? Name, decimal Total, IReadOnlyList<RuleTotalResponse> ByRule);
     public sealed record CommissionsResponse(string Competencia, string Status, string Source, decimal Total, IReadOnlyList<BeneficiaryResponse> Beneficiaries);
     public sealed record EntryResponse(Guid BoletoId, Guid OriginUserId, string? OriginName, RuleType RuleType, int? Level,
-        decimal Rate, decimal Base, decimal Amount, string? AssociadoNome, string? Placa, DateOnly? PagoEm);
+        decimal Rate, decimal Base, decimal Amount, string? AssociadoNome, string? Placa, DateOnly? PagoEm, decimal GrossBase = 0, decimal BankFee = 0);
     public sealed record DownlineResponse(Guid UserId, string Name, int Level, decimal Rate,
         decimal Base, decimal Amount, int Pagamentos);
     public sealed record LostResponse(bool Available, decimal Total, decimal EmAtraso, decimal Cancelados, int Boletos);
@@ -152,7 +152,7 @@ public static class CommissionEndpoints
                     s.ByRule.Select(r => new RuleTotalResponse(
                         r.RuleType, r.Level, r.GroupId,
                         r.GroupId is { } groupId ? groups.GetValueOrDefault(groupId) : null,
-                        r.Rate, r.Base, r.Amount)).ToList())).ToList());
+                        r.Rate, r.Base, r.Amount, r.GrossBase, r.BankFee)).ToList())).ToList());
         }, ct);
         return Results.Ok(response);
     }
@@ -178,7 +178,7 @@ public static class CommissionEndpoints
                 {
                     var boleto = visible.GetValueOrDefault(e.BoletoId);
                     return new EntryResponse(e.BoletoId, e.OwnerId, names.GetValueOrDefault(e.OwnerId), e.RuleType, e.Level,
-                        e.Rate, e.Base, e.Amount, boleto?.AssociadoNome, boleto?.Placa, boleto?.PagoEm);
+                        e.Rate, e.Base, e.Amount, boleto?.AssociadoNome, boleto?.Placa, boleto?.PagoEm, e.GrossBase ?? e.Base, e.BankFee ?? 0);
                 })
                 .OrderBy(e => e.RuleType)
                 .ThenBy(e => e.OriginName)

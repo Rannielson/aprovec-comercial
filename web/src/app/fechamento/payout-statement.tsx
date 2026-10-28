@@ -21,10 +21,11 @@ function PersonBreakdown({ person, competencia, canApproveExtra, finalizado }: {
           {person.regrasArvore.length > 0 ? person.regrasArvore.map((rule) => (
             <div className="payout-calculation" key={`${rule.ruleType}-${rule.level}-${rule.groupId}-${rule.rate}`}>
               <span>{ruleLabel(rule)}</span>
-              <span>{formatMoney(rule.base)} × {formatPercent(rule.rate)}</span>
+              <span>{formatMoney(rule.grossBase ?? rule.base)} − tarifas {formatMoney(rule.bankFee ?? 0)} = {formatMoney(rule.base)} líquidos<br />{formatMoney(rule.base)} × {formatPercent(rule.rate)}</span>
               <strong>{formatMoney(rule.amount)}</strong>
             </div>
           )) : <p className="muted">Nenhum recebimento com comissão da árvore nesta competência.</p>}
+          <p className="muted">Percentuais aplicados ao líquido de cada boleto, com arredondamento individual a centavos.</p>
         </div>
       </details>
 

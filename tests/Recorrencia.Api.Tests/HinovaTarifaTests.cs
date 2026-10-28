@@ -8,7 +8,7 @@ public class HinovaTarifaTests(ApiFixture api)
 {
     private sealed record Pending(int Count);
     private sealed record Wallet(List<WalletItem> Items, int TotalCount, int TotalAllCount);
-    private sealed record WalletItem(Guid Id, decimal Valor, decimal Comissao, decimal? TarifaBancaria, decimal? ValorLiquido, bool TarifaPendente);
+    private sealed record WalletItem(Guid Id, decimal Valor, decimal Comissao, decimal? TarifaBancaria, decimal? ValorLiquido, bool TarifaPendente, decimal ValorBruto);
     private sealed record Entry(Guid BoletoId, string RuleType, decimal Base, decimal Amount);
 
     [Fact]
@@ -99,7 +99,7 @@ public class HinovaTarifaTests(ApiFixture api)
             var updated=await consultor.GetJsonAsync<Wallet>("/carteira?status=recebido&competencia=2026-09");
             Assert.Equal(visible.TotalCount+1,updated.TotalCount);
             Assert.Equal(visible.TotalAllCount+1,updated.TotalAllCount);
-            Assert.Contains(updated.Items,b=>b.Id==unknown && !b.TarifaPendente && b.ValorLiquido==98m && b.Comissao==6.86m);
+            Assert.Contains(updated.Items,b=>b.Id==unknown && !b.TarifaPendente && b.ValorLiquido==98m && b.Valor==98m && b.ValorBruto==100m && b.Comissao==6.86m);
         }
         finally{api.Hinova.Tarifas.Clear();}
     }

@@ -22,6 +22,8 @@ export type RuleTotal = {
   groupName: string | null;
   rate: number;
   base: number;
+  grossBase?: number;
+  bankFee?: number;
   amount: number;
 };
 
@@ -53,6 +55,7 @@ export type WalletItem = {
   pagoEm: string | null;
   diasAtraso: number | null;
   comissao: number;
+  valorBruto?: number;
   tarifaBancaria?: number | null;
   valorLiquido?: number | null;
   tarifaPendente?: boolean;
@@ -132,6 +135,8 @@ export type CommissionEntry = {
   level: number | null;
   rate: number;
   base: number;
+  grossBase?: number;
+  bankFee?: number;
   amount: number;
   associadoNome: string | null;
   placa: string | null;
@@ -144,6 +149,8 @@ export type CommissionDownline = {
   level: number;
   rate: number;
   base: number;
+  grossBase?: number;
+  bankFee?: number;
   amount: number;
   pagamentos: number;
 };

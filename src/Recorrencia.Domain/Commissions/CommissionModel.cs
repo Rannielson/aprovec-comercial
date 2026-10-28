@@ -28,4 +28,4 @@ public sealed record CommissionEntry(
     decimal Rate,
     decimal Base,
     decimal Amount,
-    int ContractSegment = 0);
+    int ContractSegment = 0, decimal? GrossBase = null, decimal? BankFee = null);

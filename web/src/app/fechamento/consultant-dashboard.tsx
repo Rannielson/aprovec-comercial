@@ -18,6 +18,7 @@ export function ConsultantDashboard({ payout, person, lost }: {
   const direct = breakdown?.direct ?? 0;
   const team = breakdown?.team ?? 0;
   const own = breakdown?.directRules.reduce((sum, rule) => sum + rule.amount, 0) ?? 0;
+  const ownRule = person?.regrasArvore.find((r) => r.ruleType === 'own');
   const teamRules = breakdown?.teamRules ?? [];
   const standardRates = [0.02, 0.01];
   const otherRates = [...new Set(teamRules.map((rule) => rule.rate))]
@@ -27,6 +28,8 @@ export function ConsultantDashboard({ payout, person, lost }: {
     const rules = teamRules.filter((rule) => Math.round(rule.rate * 10000) === Math.round(rate * 10000));
     return {
       rate,
+      grossBase: rules.reduce((sum, rule) => sum + (rule.grossBase ?? rule.base), 0),
+      bankFee: rules.reduce((sum, rule) => sum + (rule.bankFee ?? 0), 0),
       base: rules.reduce((sum, rule) => sum + rule.base, 0),
       amount: rules.reduce((sum, rule) => sum + rule.amount, 0),
       label: rules[0]?.level ? `${rules[0].level}º nível da equipe` : 'Equipe',
@@ -52,6 +55,7 @@ export function ConsultantDashboard({ payout, person, lost }: {
           <p>Sua carteira e os bônus aprovados neste fechamento.</p>
           <div className="dashboard-metric-lines">
             <ValueLine label="Carteira própria" amount={own} />
+            <p className="muted">Bruto {formatMoney(ownRule?.grossBase ?? ownRule?.base ?? 0)} − tarifas {formatMoney(ownRule?.bankFee ?? 0)} = {formatMoney(ownRule?.base ?? 0)} líquidos</p>
             <ValueLine label="Bônus de produção" amount={person?.placas ?? 0} />
             <ValueLine label="Bônus extra aprovado" amount={person?.extra ?? 0} />
           </div>
@@ -94,7 +98,7 @@ export function ConsultantDashboard({ payout, person, lost }: {
             <article className="dashboard-rate-card" key={card.rate}>
               <div className="dashboard-rate-top"><span>{card.label}</span><strong>{formatPercent(card.rate)}</strong></div>
               <div className="dashboard-rate-amount">{formatMoney(card.amount)}</div>
-              <p>Base paga {formatMoney(card.base)} × {formatPercent(card.rate)}</p>
+              <p>Bruto {formatMoney(card.grossBase)} − tarifas {formatMoney(card.bankFee)} = {formatMoney(card.base)} líquidos<br />{formatMoney(card.base)} × {formatPercent(card.rate)}</p>
             </article>
           ))}
         </div>

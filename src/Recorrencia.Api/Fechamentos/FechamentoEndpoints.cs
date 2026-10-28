@@ -13,6 +13,7 @@ namespace Recorrencia.Api.Fechamentos;
 
 public static class FechamentoEndpoints
 {
+    public sealed record ReopenRequest(string? Motivo);
     public sealed record ConfirmResponse(string Competencia, string Status, int Entries, decimal Total);
     public sealed record FechamentoResponse(string Competencia, string Status, DateTime? ConfirmadoEm, DateTime? ProvisionadoEm);
 
@@ -29,6 +30,7 @@ public static class FechamentoEndpoints
 
     public static void MapFechamentoEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapPost("/fechamentos/{competencia}/reopen", ReopenAsync).RequirePermission("fechamento.confirmar").RequirePermission("fechamento.visualizar");
         app.MapGet("/fechamentos", ListAsync).RequirePermission("fechamento.visualizar");
         app.MapPost("/fechamentos/{competencia}/confirm", ConfirmAsync)
             .RequirePermission("fechamento.confirmar")
@@ -38,6 +40,24 @@ public static class FechamentoEndpoints
         app.MapPost("/fechamentos/{competencia}/provision", ProvisionAsync)
             .RequirePermission("fechamento.provisionar")
             .RequirePermission("fechamento.visualizar");
+    }
+
+    private static async Task<IResult> ReopenAsync(string competencia, ReopenRequest body, RequestContext request, Database db, CancellationToken ct)
+    {
+        var month=CommissionService.ParseCompetencia(competencia);
+        if ((body.Motivo??"").Trim().Length<10) throw new ApiProblem(400,"fechamento.reason_required");
+        var revision=await db.InTenantAsync(request.RequireTenant(),request.RequireUser(),async tx=>{
+            if (await tx.ExecuteScalarAsync<string?>("select app.scope_for('comissoes.visualizar')")!="tenant")
+                throw new ApiProblem(403,"fechamento.requires_full_visibility");
+            var row=await tx.QuerySingleOrDefaultAsync<FechamentoRow>(SelectFechamento,new{tenant=request.RequireTenant(),month})
+                ?? throw new ApiProblem(404,"fechamento.not_found");
+            if(row.Status!="confirmado")throw new ApiProblem(409,"fechamento.invalid_transition");
+            var id=await tx.ExecuteScalarAsync<Guid>("select app.reopen_fechamento(@month,@motivo)",new{month,motivo=body.Motivo!.Trim()});
+            await WriteAsync(tx,request.RequireTenant(),request.RequireUser(),"fechamento.reopen","fechamentos",row.Id,
+                new{status="confirmado"},new{status="apuracao",revisionId=id,motivo=body.Motivo.Trim()});
+            return id;
+        },ct);
+        return Results.Ok(new{revisionId=revision,status="apuracao"});
     }
 
     private const string SelectFechamento = """
@@ -102,10 +122,10 @@ public static class FechamentoEndpoints
             await tx.ExecuteAsync(
                 """
                 insert into fechamento_detalhes
-                  (tenant_id, fechamento_id, beneficiario_id, origem_participante_id, boleto_id, rule_id, rule_type, level, group_id, rate, base, valor, contract_segment)
-                select @tenant, @fechamentoId, d.beneficiario, d.origem, d.boleto, d.rule_id, d.rule_type, d.level, d.group_id, d.rate, d.base, d.valor, d.contract_segment
-                  from unnest(@beneficiarios, @origens, @boletos, @ruleIds, @ruleTypes, @levels, @groups, @rates, @bases, @valores, @contractSegments)
-                    as d(beneficiario, origem, boleto, rule_id, rule_type, level, group_id, rate, base, valor, contract_segment)
+                  (tenant_id, fechamento_id, beneficiario_id, origem_participante_id, boleto_id, rule_id, rule_type, level, group_id, rate, base, valor, contract_segment, gross_base, bank_fee)
+                select @tenant, @fechamentoId, d.beneficiario, d.origem, d.boleto, d.rule_id, d.rule_type, d.level, d.group_id, d.rate, d.base, d.valor, d.contract_segment, d.gross_base, d.bank_fee
+                  from unnest(@beneficiarios, @origens, @boletos, @ruleIds, @ruleTypes, @levels, @groups, @rates, @bases, @valores, @contractSegments, @grossBases, @bankFees)
+                    as d(beneficiario, origem, boleto, rule_id, rule_type, level, group_id, rate, base, valor, contract_segment, gross_base, bank_fee)
                 """,
                 new
                 {
@@ -121,6 +141,8 @@ public static class FechamentoEndpoints
                     rates = entries.Select(e => e.Rate).ToArray(),
                     bases = entries.Select(e => e.Base).ToArray(),
                     valores = entries.Select(e => e.Amount).ToArray(),
+                    grossBases = entries.Select(e => e.GrossBase ?? e.Base).ToArray(),
+                    bankFees = entries.Select(e => e.BankFee ?? 0).ToArray(),
                     contractSegments = entries.Select(e => e.ContractSegment).ToArray(),
                 });
 

@@ -10,7 +10,7 @@ namespace Recorrencia.Api.Carteira;
 public static class CarteiraEndpoints
 {
     public sealed record CarteiraItemResponse(Guid Id, string AssociadoNome, string? Placa, decimal Valor, string Status,
-        DateOnly Vencimento, DateOnly? PagoEm, int? DiasAtraso, decimal Comissao, decimal? TarifaBancaria, decimal? ValorLiquido, bool TarifaPendente);
+        DateOnly Vencimento, DateOnly? PagoEm, int? DiasAtraso, decimal Comissao, decimal? TarifaBancaria, decimal? ValorLiquido, bool TarifaPendente, decimal ValorBruto);
 
     public sealed record CarteiraResponse(IReadOnlyList<CarteiraItemResponse> Items, int Page, int PageSize, int TotalCount,
         int TotalAllCount, IReadOnlyDictionary<string, int> StatusCounts, decimal TotalValor, decimal TotalComissao);
@@ -134,6 +134,7 @@ public static class CarteiraEndpoints
         public string AssociadoNome { get; set; } = "";
         public string? Placa { get; set; }
         public decimal Valor { get; set; }
+        public decimal ValorBruto { get; set; }
         public string Status { get; set; } = "";
         public DateOnly Vencimento { get; set; }
         public DateOnly? PagoEm { get; set; }
@@ -187,7 +188,7 @@ public static class CarteiraEndpoints
 
             var totals = await tx.QuerySingleAsync<TotalsRow>(
                 $"""
-                select count(*)::int as total_count, coalesce(sum(b.valor), 0) as total_valor,
+                select count(*)::int as total_count, coalesce(sum(case when b.status='recebido' and not @somenteTarifasPendentes then b.comissao_base else b.valor end), 0) as total_valor,
                        coalesce(sum({CommissaoExpression}), 0) as total_comissao
                   from boletos b
                  where b.tenant_id = @tenant and b.participante_id = any(@ownerIds)
@@ -201,7 +202,7 @@ public static class CarteiraEndpoints
 
             var items = await tx.QueryAsync<ItemRow>(
                 $"""
-                select b.id, b.associado_nome, b.placa, b.valor, b.status, b.vencimento, b.pago_em,
+                select b.id, b.associado_nome, b.placa, case when b.status='recebido' then coalesce(b.comissao_base,b.valor) else b.valor end as valor, b.valor as valor_bruto, b.status, b.vencimento, b.pago_em,
                        b.tarifa_bancaria, b.comissao_base as valor_liquido,
                        (b.status='recebido' and b.comissao_base is null) as tarifa_pendente,
                        case when b.status = 'atraso' then ((now() at time zone 'America/Sao_Paulo')::date - b.vencimento)::int end as dias_atraso,
@@ -219,7 +220,7 @@ public static class CarteiraEndpoints
                 new { tenant, ownerIds, showPendingFees, statusFilter, somenteTarifasPendentes, mesPagamento, searchFilter, pageSize = PageSize, offset = (currentPage - 1) * PageSize });
 
             return new CarteiraResponse(
-                items.Select(i => new CarteiraItemResponse(i.Id, i.AssociadoNome, i.Placa, i.Valor, i.Status, i.Vencimento, i.PagoEm, i.DiasAtraso, i.Comissao, i.TarifaBancaria, i.ValorLiquido, i.TarifaPendente)).ToList(),
+                items.Select(i => new CarteiraItemResponse(i.Id, i.AssociadoNome, i.Placa, i.Valor, i.Status, i.Vencimento, i.PagoEm, i.DiasAtraso, i.Comissao, i.TarifaBancaria, i.ValorLiquido, i.TarifaPendente, i.ValorBruto)).ToList(),
                 currentPage, PageSize, totals.TotalCount, totalAllCount, statusCounts, totals.TotalValor, totals.TotalComissao);
         }, ct);
 

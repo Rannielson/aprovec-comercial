@@ -75,6 +75,8 @@ export function PersonDetail({
         </div>
       </div>
       <dl className="detail-list">
+        <div><dt>Valor bruto recebido</dt><dd>{p.valuesHidden ? '—' : money(p.grossReceived ?? p.recebido)}</dd></div>
+        <div><dt>Tarifas bancárias</dt><dd>{p.valuesHidden ? '—' : money(p.bankFee ?? 0)}</dd></div>
         <div>
           <dt>Base própria líquida recebida</dt>
           <dd>{p.valuesHidden ? '—' : money(p.recebido)}</dd>
@@ -101,7 +103,7 @@ export function PersonDetail({
         <div>
           <strong>{p.valuesHidden ? '—' : money(p.comissao)}</strong>
         </div>
-        <p>Comissão da carteira própria + comissão de cada nível de supervisão.</p>
+        <p>Comissão da carteira própria + comissão de cada nível de supervisão. Cálculo por boleto, com arredondamento a centavos.</p>
       </section>
       <div className="rules-section">
         <h3>Árvore de indicados</h3>

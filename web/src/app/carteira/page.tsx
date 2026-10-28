@@ -115,7 +115,7 @@ export default async function CarteiraPage({
               <thead>
                 <tr>
                   <th>Nome</th>
-                  <th className="number">Valor</th>
+                  <th className="number">{activeStatus === 'recebido' && !onlyPendingFees ? 'Valor líquido' : onlyPendingFees ? 'Valor bruto' : 'Valor'}</th>
                   <th>Data de vencimento</th>
                   <th className="wallet-contact-col" aria-label="WhatsApp" />
                 </tr>
@@ -136,8 +136,8 @@ export default async function CarteiraPage({
                         {canReviewFees && item.tarifaPendente && <><br /><span className="badge warning">Tarifa pendente de conferência</span></>}
                       </td>
                       <td className="number amount" data-label="Valor">{formatMoney(item.valor)}
-                        {canReviewFees && item.status === 'recebido' && item.tarifaBancaria != null && item.valorLiquido != null && <>
-                          <br /><small className="muted">Tarifa {formatMoney(item.tarifaBancaria)} · Líquido {formatMoney(item.valorLiquido)}</small>
+                        {item.status === 'recebido' && item.tarifaBancaria != null && item.valorLiquido != null && <>
+                          <br /><small className="muted">Bruto {formatMoney(item.valorBruto ?? item.valor)} − tarifa {formatMoney(item.tarifaBancaria)} = {formatMoney(item.valorLiquido)}</small>
                         </>}
                       </td>
                       <td data-label="Vencimento">{formatDate(item.vencimento)}</td>

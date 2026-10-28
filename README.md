@@ -150,3 +150,7 @@ docker compose run --rm -e PLATFORM_ADMIN_PASSWORD=troque-me api create-platform
 ```
 
 A composição da árvore usa `/commissions/{competencia}/current`: apuração líquida atual, limitada aos beneficiários autorizados do usuário, inclusive em meses com demonstrativo confirmado. O demonstrativo de pagamento segue consultando a memória de cálculo congelada; consultar a árvore não revisa nem confirma pagamentos.
+
+Os recebimentos exibem bruto, tarifa bancária e base líquida; somente a base líquida entra nas taxas. A carteira retorna `valor` líquido para boletos recebidos e preserva `valorBruto` para a composição. As memórias de cálculo novas guardam `gross_base` e `bank_fee` junto com a base líquida, preservando a taxa efetivamente usada mesmo após novos syncs.
+
+Um admin com visibilidade integral pode reabrir uma competência confirmada por `POST /fechamentos/{competencia}/reopen`, informando `motivo`. A versão anterior completa é arquivada em `fechamento_revisoes`, com ator, data e trilha de auditoria; a competência volta à apuração e os bônus extras já aprovados são preservados. Não permite reabrir provisionados nem reconfirmar com tarifas pendentes. A transição exige arquivo criado pela função autorizada na mesma transação; edições diretas de status continuam bloqueadas.

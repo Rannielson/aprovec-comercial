@@ -22,13 +22,13 @@ public class CommissionSummaryTests
         Assert.Equal(
             new[]
             {
-                new RuleTotal(RuleType.Own, null, null, 0.07m, 20000m, 1400.00m),
-                new RuleTotal(RuleType.Upline, 1, null, 0.02m, 10000m, 200.00m),
+                new RuleTotal(RuleType.Own, null, null, 0.07m, 20000m, 1400.00m, 20000m, 0m),
+                new RuleTotal(RuleType.Upline, 1, null, 0.02m, 10000m, 200.00m, 10000m, 0m),
             },
             joao.ByRule);
 
         var coordenador = summary.Single(s => s.BeneficiaryId == Coordenador);
-        Assert.Equal(new[] { new RuleTotal(RuleType.Global, null, Coordenacao, 0.01m, 35000m, 350.00m) }, coordenador.ByRule);
+        Assert.Equal(new[] { new RuleTotal(RuleType.Global, null, Coordenacao, 0.01m, 35000m, 350.00m, 35000m, 0m) }, coordenador.ByRule);
     }
 
     [Fact]

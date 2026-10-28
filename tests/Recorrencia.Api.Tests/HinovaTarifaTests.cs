@@ -12,6 +12,29 @@ public class HinovaTarifaTests(ApiFixture api)
     private sealed record Entry(Guid BoletoId, string RuleType, decimal Base, decimal Amount);
 
     [Fact]
+    public async Task Older_api_history_preserves_report_confirmation_but_newer_bank_fee_updates_it()
+    {
+        var s=await api.SeedAsync();var id=Guid.NewGuid();var number=Guid.NewGuid().ToString();
+        await api.SqlAsync("""
+            insert into boletos(id,tenant_id,participante_id,associado_ref,associado_nome,valor,status,vencimento,pago_em,
+                hinova_nosso_numero,tarifa_bancaria,tarifa_confirmada_em,tarifa_referencia)
+            values(@id,@tenant,@owner,'report-fee','Associado',100,'recebido','2026-09-01','2026-09-25',@number,0,now(),'2026-10-28')
+            """,new{id,tenant=s.TenantId,owner=s.Joao,number});
+        api.Hinova.Tarifas.Add(new(number,10,new DateTimeOffset(2026,9,12,0,0,0,TimeSpan.FromHours(-3)),0m));
+        try
+        {
+            await HinovaTarifaSync.SyncAsync(api.Service<Database>(),api.Hinova,s.TenantId,s.Admin,"fake",new(2026,9,12),new(2026,9,12),CancellationToken.None);
+            Assert.Equal(new DateOnly(2026,10,28),await api.SqlScalarAsync<DateOnly>("select tarifa_referencia from boletos where id=@id",new{id}));
+            Assert.Equal(100m,await api.SqlScalarAsync<decimal>("select comissao_base from boletos where id=@id",new{id}));
+            api.Hinova.Tarifas.Add(new(number,20,new DateTimeOffset(2026,10,29,0,0,0,TimeSpan.FromHours(-3)),1.75m));
+            await HinovaTarifaSync.SyncAsync(api.Service<Database>(),api.Hinova,s.TenantId,s.Admin,"fake",new(2026,10,29),new(2026,10,29),CancellationToken.None);
+            Assert.Equal(98.25m,await api.SqlScalarAsync<decimal>("select comissao_base from boletos where id=@id",new{id}));
+            Assert.Equal(new DateOnly(2026,10,29),await api.SqlScalarAsync<DateOnly>("select tarifa_referencia from boletos where id=@id",new{id}));
+        }
+        finally{api.Hinova.Tarifas.Clear();}
+    }
+
+    [Fact]
     public async Task Paginated_fee_sync_resumes_after_quota_without_publishing_partial_fees()
     {
         var s=await api.SeedAsync();var number=Guid.NewGuid().ToString();var day=new DateOnly(2026,10,1);

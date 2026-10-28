@@ -52,11 +52,14 @@ public static class HinovaTarifaSync
         }
         // Do not publish intermediate pages as a finished reconciliation. This also
         // catches already-imported payments whose fee arrived in a later bank file.
+        // A newer report confirmation must survive an older initial zero in the API cache.
         await db.InTenantAsync(tenant, actor, tx => tx.ExecuteAsync("""
             update boletos b set tarifa_bancaria=t.valor,tarifa_confirmada_em=t.consultado_em,
                 tarifa_referencia=(t.data_alteracao at time zone 'America/Sao_Paulo')::date,updated_at=now()
               from hinova_boleto_tarifas t
              where b.tenant_id=@tenant and t.tenant_id=b.tenant_id and t.nosso_numero=b.hinova_nosso_numero
+               and (b.tarifa_referencia is null or
+                    (t.data_alteracao at time zone 'America/Sao_Paulo')::date >= b.tarifa_referencia)
                and (b.tarifa_bancaria is distinct from t.valor or b.tarifa_confirmada_em is null
                     or b.tarifa_referencia is distinct from (t.data_alteracao at time zone 'America/Sao_Paulo')::date)
             """, new { tenant }), ct);
